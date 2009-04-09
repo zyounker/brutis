@@ -1,0 +1,676 @@
+#!/usr/bin/php
+<?php
+/*	Project:        Brutis
+	Version:        0.89
+	Author:         Zach Younker
+	Copyright:
+
+		Software License Agreement (BSD License)
+
+		Copyright (c) 2009, Gear Six, Inc.
+		All rights reserved.
+
+		Redistribution and use in source and binary forms, with or without
+		modification, are permitted provided that the following conditions are
+		met:
+
+		* Redistributions of source code must retain the above copyright
+		 notice, this list of conditions and the following disclaimer.
+
+		* Redistributions in binary form must reproduce the above
+		 copyright notice, this list of conditions and the following disclaimer
+		 in the documentation and/or other materials provided with the
+		 distribution.
+
+		* Neither the name of Gear Six, Inc. nor the names of its
+		 contributors may be used to endorse or promote products derived from
+		 this software without specific prior written permission.
+
+		THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+		"AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+		LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+		A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+		OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+		SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+		LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+		DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+		THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+		(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+		OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+*/
+
+define('MEMCACHE_TIMEOUT', 600);
+define('START_CHAR', 133);
+define('END_CHAR', 133);
+define('EXIT_CLEAN', 0);
+define('EXIT_ERROR', 1);
+define('EXIT_WARN', 4);
+
+require_once('functions.php');
+
+/* Turn on all error reporting and set memory limit to 32M */
+error_reporting(E_ALL);
+ini_set('memory_limit', '32M');
+
+function init_settings($argc, $argv) {
+/*	init_settings()
+	Parse commandline arguments and populate $settings with data
+	@params int $argc number of arguments 
+	@params mixed $argv array of runtime arguments
+*/
+	$options = getopt("x:a:z:dc:p:r:t:n:k:ws:vb:hi:");
+
+	if (isset($options['h']) || !isset($options['x'])) {
+		print (
+			"\nUsage: ".$argv[0]." -x <server_list> [OPTIONS]\n"
+			. "      -c <collector>                  Specifiy collector host\n"
+			. "      -a <#:#>                        Access Pattern (r=random, s=sequential)\n"
+			. "      -z <#>                          Key id Offset\n"
+			. "      -b <#>                          Number of gets to batch together\n"
+			. "      -i <#>                          Collector Poll time in seconds\n"
+			. "      -d                              Disable data checksum\n"
+			. "      -k <#>                          Max keys\n"
+			. "      -p                              key prefix\n"
+			. "      -r <#:#>                        Ratio Sets:Gets\n"
+			. "      -n <#>                          Total number of operations\n"
+			. "      -t <#>                          Time in seconds to run tests default(48hours)\n"
+			. "      -s <#>                          Object size in bytes\n"
+			. "      -x <serverlist,>                list of servers (la-vip-1:11211:11211,la-vip-2:11211:11211,..)\n"
+			. "      -v                              Verbose\n"
+			. "      -h                              Help\n"
+			. "\n\n");
+		exit(EXIT_ERROR);
+	}
+
+	parse_mc_servers($options, 'x');
+	parse_collector($options, 'c');
+	parse_offset($options, 'z');
+	parse_access_pattern($options, 'a');
+	parse_checksum($options, 'd');
+	parse_prefix($options, 'p');
+	parse_ratio($options, 'r');
+	parse_runtime($options, 't');
+	parse_operations($options, 'n');
+	parse_keys($options, 'k');
+	parse_object_size($options, 's');
+	parse_verbose($options, 'v');
+	parse_batch($options, 'b');
+	parse_poll($options, 'i');
+}
+
+function set_intervals () {
+/*      set_intervals()
+	Figure out interval for set's and get's.
+	set_intervals tries to ensure even distribution, but does round off the remainder!
+*/
+	global $settings;
+
+	if ($settings['set_ratio']==0 || $settings['get_ratio'] == 0) {
+		/* if either are zero, then we don't need to do anything */
+		$settings['get_interval'] = $settings['get_ratio'];
+		$settings['set_interval'] = $settings['set_ratio'];
+	} else {
+		switch (TRUE) {
+			case ($settings['set_ratio'] > $settings['get_ratio']):
+				/* doing more sets then gets */
+				$ratio = $settings['set_ratio'] / $settings['get_ratio'];
+				$settings['set_interval'] = round($ratio, 0);
+				$settings['get_interval'] = 1;
+			break;
+			case ($settings['get_ratio'] > $settings['set_ratio']):
+				/* doing more gets then sets */
+				$ratio = $settings['get_ratio'] / $settings['set_ratio'];
+				$settings['get_interval'] = round($ratio, 0);
+				$settings['set_interval'] = 1;
+			break;
+			case ($settings['set_ratio'] == $settings['get_ratio']):
+				/* doing 1:1 ratio, no math required */
+				$settings['get_interval'] = 1;
+				$settings['set_interval'] = 1;
+			break;
+		}
+	}
+}
+
+function init_block_size() {
+/*      init_block_size()
+	Figure out size of blocks to use to create random data 
+*/
+	global $settings;
+
+	if ($settings['checksum'] == TRUE) {
+		/*subtract 32 from the total since we add md5 checksum which is 32 bytes*/
+		$size = ($settings['object_size'] - 32);
+	} else {
+		$size = $settings['object_size'];
+	}
+
+	switch (TRUE) {
+		case ($size <= 1024):
+			$multiplier = 1;
+		break;
+		case (($size / 1024) <= 1024):
+			$multiplier = 64;
+			$size = ($size / 1024);
+		break;
+		case ((($size / 1024) / 1024) <= 1024):
+			$multiplier =  128;
+			$size = (($size / 1024) / 1024);
+		break;
+	}
+
+
+	switch (TRUE) {
+		case ($size <= 32): 
+			$block_size = 4;
+		break;
+		case ($size <= 64):
+			$block_size = 8;
+		break;
+		case ($size <= 128):
+			$block_size = 16;
+		break;
+		case ($size <= 256):
+			$block_size = 32;
+		break;
+		case ($size <= 512):
+			$block_size = 64;
+		break;
+		case ($size <= 1024):
+			$block_size = 128;
+		break;
+		case ($size > 1024):
+			printf("Error, size too large! when trying to initialize block_size.\n");
+			exit(EXIT_ERROR);
+		break;
+	}
+
+	$settings['block_size'] = ($block_size * $multiplier);
+}
+
+
+function gen_blocks() {
+/*      gen_blocks()
+	Generate random data blocks
+*/
+	global $blocks;
+	global $settings;
+
+	if ($settings['verbose']) {
+		print("Generating random blocks.\n");
+	}
+
+	for ($i = 0; $i <= $settings['block_count']; $i++) {
+		$size = 0;
+		$blocks[$i] = NULL;
+		while ($size < $settings['block_size']) {
+			$blocks[$i] .= chr(rand(START_CHAR, END_CHAR));
+			$size++;
+		}
+	}
+}
+
+function gen_data() {
+/*      gen_data()
+	Generate data for set operation.  
+	@return mixed
+*/
+	global $blocks;
+	global $settings;
+
+
+	if ($settings['checksum'] == TRUE) {
+		$data['data'] = NULL;
+		$object_size = ($settings['object_size'] - 32);
+		$size = 0;
+
+		while ($size < $object_size) {
+			if (($size + $settings['block_size']) > $object_size) {
+				$data['data'] .= chr(rand(START_CHAR, END_CHAR));
+				$size++;
+			} else {
+				$data['data'] .= $blocks[rand(0, $settings['block_count'])];
+				$size = $size + $settings['block_size'];
+			}
+		}
+		$data['md5'] = md5($data['data']);
+	} else {
+		$data['data'] = NULL;
+		$object_size = $settings['object_size'];
+		$size = 0;
+		while ($size < $object_size) {
+			if (($size + $settings['block_size']) > $object_size) {
+				$data['data'] .= chr(rand(START_CHAR, END_CHAR));
+				$size++;
+			} else {
+				$data['data'] .= $blocks[rand(0, $settings['block_count'])];
+				$size = $size + $settings['block_size'];
+			}
+		}
+	}
+
+	return $data;
+	
+}
+
+function decode_data($data_in) {
+/*      decode_data()
+	Seperate data from md5 checksum from get operation.  
+	@param mixed $data_in array of md5 and data
+	@return mixed
+*/
+	$data_out['md5'] = substr($data_in, 0, 32);
+	$data_out['data'] = substr($data_in, 32, strlen($data_in));
+
+	return $data_out;
+}
+
+
+function collector_connect() {
+/*      collector_connect()
+	Connect to collector 
+*/
+	global $collector;
+	global $settings;
+
+	require_once('Net/Socket.php');
+		
+	$result = TRUE;
+
+	$collector = new Net_Socket();
+	$connection = NULL;
+	if ($settings['verbose']) {
+		print("Connecting to collector: " . $settings['collector']['server'] . ":" . $settings['collector']['port'] . "\n");
+	}
+
+	$connection = $collector->connect($settings['collector']['server'] . ":" . $settings['collector']['port'], true, 60);
+	if (PEAR::isError($connection)) {
+		print("Error connecting to collector: ". $settings['collector']['server'] . ":" . $settings['collector']['port'] . "\n");
+		print("Extended: " . $connection->getMessage($connection) . "\n");
+		exit(EXIT_ERROR);
+	}
+}
+
+function collector_disconnect() {
+/*      collector_disconnect()
+	Disconnect from collector 
+*/
+	global $collector;
+
+	$collector->disconnect();
+}
+
+function mc_connect() {
+/*      mc_connect()
+	Connect to memcache instances 
+*/
+	global $settings;
+	global $memcache;
+
+	$result = TRUE;
+
+	if ($settings['memcachelib_version'] == 2) {
+		$memcache = new Memcache();
+	}
+	if ($settings['memcachelib_version'] == 3) {
+		$memcache = new MemcachePool();
+	}
+
+	foreach($settings['memcache'] as $mc) {
+		if ($settings['memcachelib_version'] == 2) {
+			$memcache->connect($mc['server'],  $mc['tcp_port'], MEMCACHE_TIMEOUT);
+		}
+		if ($settings['memcachelib_version'] == 3) {
+			$memcache->connect($mc['server'],  $mc['tcp_port'], $mc['udp_port'], MEMCACHE_TIMEOUT);
+		}
+
+		if (!$memcache->getVersion()) {
+			print("Error connecting to memcache server: " . $mc['server'] . ":" . $mc['tcp_port'] . "\n");
+			exit(EXIT_ERROR);
+		} else {
+			if ($settings['verbose']) {
+				print("Connecting to memcached: " . $mc['server'] . ":" . $mc['tcp_port'] . "\n");
+			}
+		}
+	}
+}
+
+function mc_disconnect() {
+/*      mc_disconnect()
+	Disconnect from memcache instances 
+*/
+	global $memcache;
+
+	memcache_close($memcache);
+}
+
+function report_to_collector() {
+/*      report_to_collector()
+	Send cresults to collector 
+*/
+	global $collector;
+	global $cresults;
+
+	$result = 'err';
+	$error_count = 0;
+
+	while ($result == 'err') {
+		$collector->writeline(serialize($cresults));
+		$result = $collector->readline();
+		if ($result == 'err') {
+			print("Error sending data to collector, retrying.\n");
+			if ($error_count >= 5) {
+				print("Too many errors trying to send data to collector, exiting!\n");
+				exit(EXIT_ERROR);
+			}
+			$error_count++;
+		}
+	}
+}
+
+function reset_cresults() {
+/*      reset_cresults()
+	reset cresults back to 0 
+*/
+	global $cresults;
+	global $totals;
+
+	$totals['set_total'] = $totals['set_total'] + $cresults['set_count'];
+	$cresults['set_count'] = 0;
+
+	$totals['hit_total'] = $totals['hit_total'] + $cresults['hit_count'];
+	$cresults['hit_count'] = 0;
+
+	$totals['get_total'] = $totals['get_total'] + $cresults['get_count'];
+	$cresults['get_count'] = 0;
+
+	$totals['miss_total'] = $totals['miss_total'] + $cresults['miss_count'];
+	$cresults['miss_count'] = 0;
+
+	$totals['md5_fail_total'] = $totals['md5_fail_total'] + $cresults['md5_fail_count'];
+	$cresults['md5_fail_count'] = 0;
+
+	$totals['set_fail_total'] = $totals['set_fail_total'] + $cresults['set_fail_count'];
+	$cresults['set_fail_count'] = 0;
+
+	$cresults['transferred'] = 0;
+
+	$cresults['operations'] = 0;
+
+}
+	
+
+function check_timeout() {
+/*	check_timeout()
+	Check to see if it is time to quit or send results to collector
+	@return	bool
+*/
+	global $settings;
+	global $cresults;
+
+	$current = microtime(TRUE);
+	$elapsed = $current - $cresults['last_write'];
+
+
+	if ($elapsed > $settings['poll']) {
+		$cresults['last_write'] = $current;
+		report_to_collector();
+		reset_cresults();
+	}
+
+
+	if ($settings['runtime'] != NULL) {
+		$current_time = microtime(TRUE) - $cresults['start_time'];
+		if ($current_time >= $settings['runtime']) {
+			return TRUE;
+		} else {
+			return FALSE;
+		}
+	}
+
+	if ($settings['operations'] != NULL) {
+		if ($cresults['total_operations'] >= $settings['operations']) {
+			return TRUE;
+		} else {
+			return FALSE;
+		}
+	}
+}
+
+function mc_set($id) {
+/*	mc_set()
+	Do set operation to memcache instance
+	@param int $id key id to do set on
+	@return bool	
+*/
+	global $cresults;
+	global $totals;
+	global $settings;
+	global $memcache;
+
+	$key = $settings['prefix'] . $id;
+	$data = gen_data($settings['object_size']);
+
+	if ($settings['checksum'] == TRUE) {
+		$tmp_data = $data['md5'] . $data['data'];
+	} else {
+		$tmp_data = $data['data'];
+	}
+	if ($memcache->set($key, $tmp_data)) {
+		$cresults['transferred'] = $cresults['transferred'] + strlen($data['data']);
+		if ($settings['checksum'] == TRUE) {
+			$cresults['transferred'] = $cresults['transferred'] + strlen($data['md5']);
+		}
+		$cresults['operations']++;
+		$cresults['total_operations']++;
+		$cresults['set_count']++;
+		return TRUE;
+	} else {
+		$cresults['set_fail_count']++;
+		return FALSE;
+	}
+}
+
+function mc_get($key_ids) {
+/*	mc_get()
+	Do get operation from memcache instance
+	@param int $id key id to do get on
+	@return bool	
+*/
+	global $cresults;
+	global $memcache;
+	global $settings;
+
+	$result = TRUE;
+
+	foreach ($key_ids as $id) {
+		$keys[] = $settings['prefix'] . $id;
+	}
+	$data = $memcache->get($keys);
+
+	/* Check to see if data is not an array for danga memcachelib 3.x */
+	if (is_array($data)) {
+		if (count($data) < count($keys)) {
+			$cresults['miss_count'] = $cresults['miss_count'] + (count($keys) - count($data));
+		}
+		foreach ($data as $key=>$tmp_data) {
+			if ($settings['checksum'] == TRUE) {
+				$tmp_data = decode_data($tmp_data);
+				$md5 = md5($tmp_data['data']);
+				if ($tmp_data['md5'] != $md5) {
+					$cresults['md5_fail_count']++;
+				} else {
+					$cresults['hit_count']++;
+				}
+				$cresults['transferred'] = $cresults['transferred'] + strlen($tmp_data['data']);
+				$cresults['transferred'] = $cresults['transferred'] + strlen($tmp_data['md5']);
+			} else {
+				$cresults['transferred'] = $cresults['transferred'] + strlen($tmp_data);
+				$cresults['hit_count']++;
+			}
+		}
+		$cresults['get_count']++;
+		$cresults['operations']++;
+		$cresults['total_operations']++;
+	} else {
+		$cresults['miss_count'] = $cresults['miss_count'] + (count($keys));
+		$cresults['operations']++;
+		$cresults['total_operations']++;
+	}
+
+	return $result;
+}
+
+function mkseed() {
+/*	mkseed()
+	create data to seed rand
+	@return	int
+*/
+	list($usec, $sec) = explode('.', microtime());
+	return (float) $sec + ((float) $usec * 100000);
+}
+
+function run() {
+/*	run()
+	run memcache operations
+*/
+	global $settings;
+	global $cresults;
+	global $totals;
+
+	$cresults['start_time'] = microtime(TRUE);
+	$cresults['last_write'] = microtime(TRUE);
+	$cresults['object_size'] = $settings['object_size'];
+	$cresults['total_operations'] = 0;
+	$cresults['operations'] = 0;
+	$cresults['transferred'] = 0;
+	$cresults['set_count'] = 0;
+	$totals['set_total'] = 0;
+	$cresults['get_count'] = 0;
+	$cresults['hit_count'] = 0;
+	$totals['get_total'] = 0;
+	$totals['hit_total'] = 0;
+	$cresults['miss_count'] = 0;
+	$totals['miss_total'] = 0;
+	$cresults['md5_fail_count'] = 0;
+	$totals['md5_fail_total'] = 0;
+	$cresults['set_fail_count'] = 0;
+	$totals['set_fail_total'] = 0;
+	$cresults['key_count'] = 0;
+
+	$exit_loop = FALSE;
+	$set_id = $settings['offset'];
+	$get_id = $settings['offset'];
+
+
+	if ($settings['batch'] > $settings['max_keys']) {
+		printf("Error, can not batch get more keys, max_keys was set to ".$settings['max_keys']."\n");
+		exit(1);
+	}
+
+	while ($exit_loop == FALSE) {
+		mkseed();
+		for ($i = 0; $i < $settings['set_interval']; $i++) {
+			if (check_timeout()) {
+				$exit_loop = TRUE;
+				break;
+			}
+			if (mc_set($set_id)) {
+				if ($cresults['key_count'] < $settings['max_keys']) {
+					$cresults['key_count']++;
+				}
+			}
+			/* Check Access patter, R = Random, S = Sequential */
+			if ($settings['set_pattern'] == "R") {
+				$set_id = rand($settings['offset'], ($settings['max_keys'] + $settings['offset']));
+			}
+			/* Check Access patter, R = Random, S = Sequential */
+			if ($settings['set_pattern'] == "S") {
+				if ($set_id >= ($settings['max_keys'] + $settings['offset'])) {
+					$set_id = $settings['offset'];
+				} else {
+					$set_id++;
+				}
+			}
+		}
+
+		for ($i = 0; $i < $settings['get_interval']; $i++) {
+			if (check_timeout()) {
+				$exit_loop = TRUE;
+				break;
+			}
+			if ($settings['get_ratio'] != 0) {
+				$get_ids = array();
+				while (count($get_ids) < $settings['batch']) {
+					/* Check Access patter, R = Random, S = Sequential */
+					if ($settings['get_pattern'] == "R") {
+						$get_id = rand(0,($settings['max_keys'] + $settings['offset']));
+					}
+					/* Check Access patter, R = Random, S = Sequential */
+					if ($settings['get_pattern'] == "S") {
+						if ($get_id >= ($settings['max_keys'] + $settings['offset'])) {
+							$get_id = $settings['offset'];
+						} else {
+							$get_id++;
+						}
+					}
+					$get_ids[] = $get_id;
+				}
+				mc_get($get_ids);
+			}
+		}
+	}
+
+	$cresults['end_time'] = microtime(TRUE);
+
+	$elapsed_time = $cresults['end_time'] - $cresults['start_time'];
+
+	$cresults['last_write'] = $cresults['end_time'];
+	report_to_collector();
+
+	if ($settings['verbose']) {
+		print("Completed " . $cresults['total_operations'] . " Operations in $elapsed_time\n");
+	}
+}
+
+/* MAIN */
+
+$collector = array();
+$cresults = array();
+$totals = array();
+$memcache = NULL;
+$blocks = array();
+$settings = array();
+
+init_settings($argc, $argv);
+$settings['block_count'] = 127;
+check_libs();
+init_block_size();
+gen_blocks();
+
+if ($settings['verbose']) {
+	printf("object_size: " . $settings['object_size'] . "\n");
+	printf("block_count: " . ($settings['block_count'] + 1) . "\n");
+	printf("block_size: " . $settings['block_size'] . "\n");
+}
+
+set_intervals();
+collector_connect();
+mc_connect();
+
+run();
+
+mc_disconnect();
+collector_disconnect();
+
+
+/* Exit code 4 if there were md5 checksum mismatches or set failures, otherwise exitcode 0 */
+if ($cresults['md5_fail_count'] > 0 || $cresults['set_fail_count'] > 0) {
+	exit(EXIT_WARN);
+} else {
+	exit(EXIT_CLEAN);
+}
+
+
+?>

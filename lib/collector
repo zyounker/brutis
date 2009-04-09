@@ -1,0 +1,261 @@
+#!/usr/bin/php
+<?php
+/*	Project:        Brutis
+	Version:        0.89
+	Author:         Zach Younker
+	Copyright:
+
+		Software License Agreement (BSD License)
+
+		Copyright (c) 2009, Gear Six, Inc.
+		All rights reserved.
+
+		Redistribution and use in source and binary forms, with or without
+		modification, are permitted provided that the following conditions are
+		met:
+
+		* Redistributions of source code must retain the above copyright
+		  notice, this list of conditions and the following disclaimer.
+
+		* Redistributions in binary form must reproduce the above
+		  copyright notice, this list of conditions and the following disclaimer
+		  in the documentation and/or other materials provided with the
+		  distribution.
+
+		* Neither the name of Gear Six, Inc. nor the names of its
+		  contributors may be used to endorse or promote products derived from
+		  this software without specific prior written permission.
+
+		THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+		"AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+		LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+		A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+		OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+		SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+		LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+		DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+		THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+		(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+		OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+*/
+
+/* Set error reporting to all and memory limit to 32M */
+ini_set('memory_limit', '32M');
+error_reporting(E_ALL);
+
+require_once('lib/functions.php');
+require_once('Net/Server.php');
+require_once 'Net/Server/Handler.php';
+
+class Net_Server_Handler_Talkback extends Net_Server_Handler {
+	function output_data($elapsed_time) {
+/*		output_data()
+		output stats to screen/disk
+		@param $elapsed_time int
+*/
+		global $settings;
+		global $totals;
+		global $foutput;
+		global $clients;
+
+		if ($settings['verbose']) {
+			$sps = round($totals['total_sets'] / $elapsed_time, 2);
+			$gps = round($totals['total_gets'] / $elapsed_time, 2);
+			$hps = round($totals['total_hits'] / $elapsed_time, 2);
+			$mps = round($totals['total_misses'] / $elapsed_time, 2);
+			$fps = round(($totals['set_fails'] + $totals['md5_fails']) / $elapsed_time, 2);
+			$mbps = round((($totals['total_transferred'] / 1024 / 1024) / $elapsed_time), 2);
+			$ops = round(($totals['operations'] / $elapsed_time), $settings['poll']);
+			print ("$sps Sets/sec, $gps Gets/Sec, $hps Hits/sec, $mps Misses/sec, " . $fps . " Fails/sec, " . $ops . " Ops/sec " . $mbps . " MB/sec, " . $clients . " Clients\n");
+		}
+
+		if ($settings['filename'] != NULL) {
+			fwrite($foutput, $totals['last_write'] . ':' .
+				$totals['total_sets'] . ':' .
+				$totals['total_gets'] . ':' .
+				$totals['total_hits'] . ':' .
+				$totals['total_misses'] . ':' .
+				$totals['set_fails'] . ':' .
+				$totals['md5_fails'] . ':' .
+				$totals['operations'] . ':' .
+				$totals['total_transferred'] . ':' .
+				$clients . "\n");
+		}
+	}
+
+	function onStart() {
+/*		onStart()
+		initialize variables, open output file  on startup
+*/
+		global $totals;
+		global $foutput;
+		global $settings;
+		global $in_service;
+
+		$in_service = TRUE;
+		$totals['last_write'] = microtime(TRUE);
+		$totals['key_count'] = 0;
+		$totals['total_ops'] = 0;
+
+		self::reset_totals();
+
+		/* if filename != NULL then we need to output results to file */
+		if ($settings['filename'] != NULL) {
+			if (!$foutput) {
+				$foutput = fopen($settings['filename'], 'w');
+				fwrite($foutput, "#timestamp:sets:gets:hits:misses:set_fails:md5_fails:operations:transferred:clients\n");
+			}
+		}
+	}
+
+	function onShutdown() {
+/*		onShutdown()
+		All clients disconnected, cleanup and exit
+*/
+		global $totals;
+		global $foutput;
+		global $settings;
+		global $in_service;
+
+		if ($in_service == TRUE) {
+			$in_service = FALSE;
+			$current_time = microtime(TRUE);
+			$elapsed_time = $current_time - $totals['last_write'];
+			$totals['last_write'] = $current_time;
+			self::output_data($elapsed_time);
+
+			if ($settings['verbose']) {
+				print("Total Operations " . $totals['total_ops'] . "\n");
+			}
+
+			if ($settings['filename'] != NULL) {
+				fwrite($foutput, "#Total Operations " . $totals['total_ops'] . "\n");
+				fclose($foutput);
+			}
+		}
+	}
+
+	function OnConnect ($client_id = 0) {
+/*		onConnect() {
+		new client connect
+*/
+		global $clients;
+
+		$clients++;
+
+	}
+
+	function OnClose($client_id = 0) {
+/*		onClose()
+		Client disconnected
+*/
+		global $clients;
+
+		$clients--;
+
+		if ($clients == 0) {
+			exit(0);
+		}
+	}
+
+	function onReceiveData ($client_id = 0, $data = '') {
+/*		onReceiveData()
+		New incoming data from client
+*/
+		global $totals;
+		global $clients;
+		global $settings;
+
+		if (!$data = unserialize($data)) {
+			print ("Error in collector data\n");
+			$this->_server->sendData($client_id, "err\n");
+			break;
+		} else {
+			$this->_server->sendData($client_id, "ack\n");
+		}
+
+		if (isset($data['key_count'])) {
+			$totals['key_count'] = $totals['key_count'] + $data['key_count'];		
+		}
+		if (isset($data['end_time'])) {
+			$totals['end_time'] = $data['end_time'];
+		}
+		if (isset($data['operations'])) {
+			$totals['operations'] = $totals['operations'] + $data['operations'];
+			$totals['total_ops'] = $totals['total_ops'] + $data['operations'];
+		}
+		if (isset($data['set_count'])) {
+			$totals['total_sets'] = $data['set_count'] + $totals['total_sets'];
+		}
+		if (isset($data['hit_count'])) {
+			$totals['total_hits'] = $data['hit_count'] + $totals['total_hits'];
+		}
+		if (isset($data['get_count'])) {
+			$totals['total_gets'] = $data['get_count'] + $totals['total_gets'];
+		}
+		if (isset($data['miss_count'])) {
+			$totals['total_misses'] = $data['miss_count'] + $totals['total_misses'];
+		}
+		if (isset($data['set_fail_count'])) {
+			$totals['set_fails'] = $data['set_fail_count'] + $totals['set_fails'];
+		}
+		if (isset($data['md5_fail_count'])) {
+			$totals['md5_fails'] = $data['md5_fail_count'] + $totals['md5_fails'];
+		}
+		if (isset($data['transferred'])) {
+			$totals['total_transferred'] = $data['transferred'] + $totals['total_transferred'];
+		}
+
+		$current_time = microtime(TRUE);
+		$elapsed_time = $current_time - $totals['last_write'];
+		if ($elapsed_time >= $settings['poll']) {
+			$totals['last_write'] = $current_time;
+			self::output_data($elapsed_time);
+			self::reset_totals();
+		}
+	}
+
+	function reset_totals() {
+/*		reset counters
+*/
+		global $totals;
+
+		$totals['total_sets'] = 0;
+		$totals['total_gets'] = 0;
+		$totals['total_hits'] = 0;
+		$totals['total_misses'] = 0;
+		$totals['set_fails'] = 0;
+		$totals['md5_fails'] = 0;
+		$totals['total_transferred'] = 0;
+		$totals['operations'] = 0;
+		$totals['keys'] = 0;
+
+	}
+}
+
+/* MAIN */ 
+
+$in_service = FALSE;
+$clients = 0;
+$totals = array();
+$settings = array();
+
+$options = getopt('o:vi:c:');
+
+parse_collector($options, 'c');
+parse_verbose($options, 'v');
+parse_poll($options, 'i');
+parse_output($options, 'o');
+
+/* Start collector on requested ip port */
+$server  = &Net_Server::create('sequential', $settings['collector']['server'], $settings['collector']['port']);
+$server->setDebugMode(FALSE, "text");
+$handler = &new Net_Server_Handler_Talkback;
+$server->setCallbackObject($handler);
+
+pcntl_signal(SIGINT, array(&$handler, 'onShutdown'), FALSE);
+
+$server->start();
+
+?>

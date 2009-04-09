@@ -1,0 +1,263 @@
+#!/usr/bin/php
+<?php
+/*
+	Project:	Brutis
+	Version:	0.89
+	Author:		Zach Younker
+	Copyright:
+
+		Software License Agreement (BSD License)
+
+		Copyright (c) 2009, Gear Six, Inc.
+		All rights reserved.
+
+		Redistribution and use in source and binary forms, with or without
+		modification, are permitted provided that the following conditions are
+		met:
+
+		* Redistributions of source code must retain the above copyright
+		  notice, this list of conditions and the following disclaimer.
+
+		* Redistributions in binary form must reproduce the above
+		  copyright notice, this list of conditions and the following disclaimer
+		  in the documentation and/or other materials provided with the
+		  distribution.
+
+		* Neither the name of Gear Six, Inc. nor the names of its
+		  contributors may be used to endorse or promote products derived from
+		  this software without specific prior written permission.
+
+		THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+		"AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+		LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+		A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+		OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+		SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+		LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+		DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+		THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+		(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+		OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+*/
+
+/* Set error reporting to ALL */
+error_reporting(E_ALL);
+
+require_once('lib/task_manager.php');
+require_once('lib/functions.php');
+
+/* Define how to run collector by extending Task class */
+class collector extends Task{
+	function exec() {
+		/* Execute collector */
+		parent::exec();
+		global $port;
+
+		if ($this->args['verbose']) {
+			print("Starting collector\n");
+			$options[] = '-v';
+		}
+		$options[] = '-i' . $this->args['poll'];
+
+		if ($this->args['filename'] != NULL) {
+			$options[] = '-o' . $this->args['filename'];
+		}
+		$options[] = '-c' . $this->args['collector']['server'] . ":". $this->args['collector']['port'];
+		if (isset($options)) {
+			pcntl_exec('lib/collector', $options);
+		} else {
+			pcntl_exec('lib/collector', array());
+		}
+	}
+	function finish() {
+		/* Code to run when collector finishes */
+		parent::finish();
+		if ($this->exit_code > 0) {
+			print ("collector exit code " . $this->exit_code . "!\n");
+		}
+	}
+}
+
+/* Define how to run client by extending Task class */
+class client extends Task{
+	function exec() {
+		/* Execute client */
+		parent::exec();
+		$options[] = '-k' . $this->args['max_keys'];
+		if($this->args['prefix']) {
+			$options[] = '-p' . $this->args['prefix'];
+		}
+		$options[] = '-r' . $this->args['set_ratio'] . ':' . $this->args['get_ratio'];
+		$options[] = '-a' . $this->args['set_pattern'] . ':' . $this->args['get_pattern'];
+		$options[] = '-z' . $this->args['offset'];
+		if ($this->args['batch'] > 0) {
+			$options[] = '-b' . $this->args['batch'];
+		}
+		if ($this->args['operations'] != NULL) {
+			$options[] = '-n' . $this->args['operations'];
+		}
+		if ($this->args['runtime'] != NULL) {
+			$options[] = '-t' . $this->args['runtime'];
+		}
+		if ($this->args['checksum'] == FALSE) {
+			$options[] = '-d';
+		}
+		$options[] = '-s' . $this->args['object_size'];
+		$options[] = '-i' . $this->args['poll'];
+		$server_list = NULL;
+		for ($i = 0; $i < count($this->args['memcache']); $i++) {
+			if ($i != (count($this->args['memcache']) - 1)) {
+				$server_list .= $this->args['memcache'][$i]['server'] . ":" .
+					$this->args['memcache'][$i]['tcp_port'] . ':' .
+					$this->args['memcache'][$i]['udp_port'] . ',';
+			} else {
+				$server_list .= $this->args['memcache'][$i]['server'] . ":" .
+					$this->args['memcache'][$i]['tcp_port'] . ":".
+					$this->args['memcache'][$i]['udp_port'];
+			}
+		}
+		$options[] = "-x" . trim($server_list);
+		$options[]='-c' . $this->args['collector']['server'] . ":" . $this->args['collector']['port'];
+
+		pcntl_exec('lib/client', $options);
+	}
+	function finish() {
+		/* Code to run when collector finishes */
+		parent::finish();
+
+		if ($this->exit_code > 0) {
+			print ("client pid " . $this->pid . " exit code " . $this->exit_code . "!\n");
+		}
+	}
+}
+
+function init_settings($argc, $argv) {
+/*	init_settings()
+	Get runtime arguments and convert them to settings.
+	@param int $argc number of arguments
+	@param mixed $argv,... runtime arguments
+*/
+	$options = getopt("c:a:z:dk:p:r:n:t:f:s:o:x:vhb:i:");
+
+	if (isset($options['h']) || !isset($options['x'])) {
+		print (
+			"\nUsage: Brutis -x <server_list> [OPTIONS]\n"
+			. "	-c <collector>			Specifiy collector host\n"
+			. "	-a <#:#>			Access Pattern (r=random, s=sequential)\n"
+			. "	-z <#>				Key id Offset\n"
+			. "	-b <#>				Number of gets to batch together\n"
+			. "	-i <#>				Collector Poll time in seconds\n"
+			. "	-d 				Disable data checksum\n"
+			. "	-k <#>	 			Max keys\n"
+			. "	-p 				key prefix\n"
+			. "	-r <#:#>			Ratio Sets:Gets\n"
+			. "	-n <#>				Total number of operations\n"
+			. "	-t <#>				Time in seconds to run tests default(48hours)\n"
+			. "	-f <#>				Processes to fork\n"
+			. "	-s <#>				Object size in bytes\n"
+			. "	-o <filename>			Write results output\n"
+			. "	-x <serverlist,>		list of servers (la-vip-1:11211:11211,la-vip-2:11211:11211,..)\n"
+			. "	-v 				Verbose\n"
+			. "	-h				Help\n"
+			. "\n\n");
+		exit(1);
+	}
+
+	parse_collector($options, 'c');
+	parse_offset($options, 'z');
+	parse_access_pattern($options, 'a');
+	parse_keys($options, 'k');
+	parse_checksum($options, 'd');
+	parse_prefix($options, 'p');
+	parse_ratio($options, 'r');
+	parse_operations($options, 'n');
+	parse_runtime($options, 't');
+	parse_forks($options, 'f');
+	parse_object_size($options, 's');
+	parse_output($options, 'o');
+	parse_mc_servers($options, 'x');
+	parse_verbose($options, 'v');
+	parse_batch($options, 'b');
+	parse_poll($options, 'i');
+
+}
+
+/* MAIN */
+$settings = array();
+init_settings($argc, $argv);
+check_libs();
+
+$tm = new TaskManager();
+
+/* Setting maxruntime for taskmanager class to kill client */
+$settings['maxruntime'] = 172800; 
+
+/* Get node name */
+$host_info = posix_uname();
+$nodename = $host_info['nodename'];
+if (eregi('.', $nodename)) {
+	$e_nodename = explode(".", $nodename);
+	$hostname = $e_nodename[0];
+} else {
+	$hostname = $nodename;
+}
+
+/* If collector specified is this host, add collector to taskmanager to be executed */
+if ($settings['collector']['server'] == $hostname || $settings['collector']['server'] == 'localhost') {
+	$tm->add_task(new collector(), $settings);
+}
+
+/* Add clients to task manager to be executed. */
+for ($i = 1; $i <= $settings['forks']; $i++) {
+	$tm->add_task(new client(), $settings);
+}
+
+if ($settings['verbose']) {
+	$server_list = NULL;
+	for ($i = 0; $i < count($settings['memcache']); $i++) {
+		if ($i != (count($settings['memcache']) - 1)) {
+			$server_list .= $settings['memcache'][$i]['server'] . ":" .
+				$settings['memcache'][$i]['tcp_port'] . ':' .
+				$settings['memcache'][$i]['udp_port'] . ',';
+		} else {
+			$server_list .= $settings['memcache'][$i]['server'] . ":" .
+				$settings['memcache'][$i]['tcp_port'] . ':' .
+				$settings['memcache'][$i]['udp_port'];
+		}
+	}
+	print ("\nBrutis\n");
+	print ("--------------------------------------------------------\n");
+	print ("Ratio: " . $settings['set_ratio'] . ":" . $settings['get_ratio'] . "\n");
+	print ("Pattern: " . $settings['set_pattern'] . ":" . $settings['get_pattern'] . "\n");
+	print ("Forks: " . $settings['forks'] . "\n");
+	print ("Key Offset: " . $settings['offset'] . "\n");
+	print ("Max Keys: " . $settings['max_keys'] . "\n");
+	print ("Key Prefix: " . $settings['prefix'] . "\n");
+	print ("Batch: " . $settings['batch'] . "\n");
+	if ($settings['checksum'] == TRUE) {
+		print ("MD5 checksum: Enabled\n");
+	} else {
+		print ("MD5 checksum: Disabled\n");
+	}
+	print ("Poll Interval: " . $settings['poll'] . " seconds\n");
+	print ("Object Size: " . $settings['object_size'] . "\n");
+	if ($settings['filename'] != NULL) {
+		print("Output file: " . $settings['filename'] . "\n");
+	}
+	if ($settings['runtime'] != NULL) {
+		print ("Runtime: " . $settings['runtime'] . "\n");
+	}
+	if ($settings['operations'] != NULL) {
+		print ("Operations: " . $settings['operations'] . "\n");
+	}
+	print ("Collector: " . $settings['collector']['server'] . ":" . $settings['collector']['port'] . "\n");
+	print ("Memcache Library Version: " . $settings['memcachelib_version'] . "\n");
+	print ("Memcache Server(s): " . $server_list . "\n");
+	print ("--------------------------------------------------------\n\n");
+}
+
+/* Execute Tasks */
+$tm->run();
+
+?>
