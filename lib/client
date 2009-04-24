@@ -1,7 +1,7 @@
 #!/usr/bin/php
 <?php
 /*	Project:        Brutis
-	Version:        0.89
+	Version:        0.90.
 	Author:         Zach Younker
 	Copyright:
 
@@ -41,8 +41,8 @@
 */
 
 define('MEMCACHE_TIMEOUT', 600);
-define('START_CHAR', 133);
-define('END_CHAR', 133);
+define('START_CHAR', 1);
+define('END_CHAR', 255);
 define('EXIT_CLEAN', 0);
 define('EXIT_ERROR', 1);
 define('EXIT_WARN', 4);
@@ -69,7 +69,7 @@ function init_settings($argc, $argv) {
 			. "      -z <#>                          Key id Offset\n"
 			. "      -b <#>                          Number of gets to batch together\n"
 			. "      -i <#>                          Collector Poll time in seconds\n"
-			. "      -d                              Disable data checksum\n"
+			. "      -d                              Enable data checksum\n"
 			. "      -k <#>                          Max keys\n"
 			. "      -p                              key prefix\n"
 			. "      -r <#:#>                        Ratio Sets:Gets\n"
@@ -106,7 +106,7 @@ function set_intervals () {
 */
 	global $settings;
 
-	if ($settings['set_ratio']==0 || $settings['get_ratio'] == 0) {
+	if (($settings['set_ratio']==0) || ($settings['get_ratio'] == 0) || ($settings['set_ratio'] % $settings['get_ratio'] != 0)  || ($settings['get_ratio'] % $settings['set_ratio'] != 0)) {
 		/* if either are zero, then we don't need to do anything */
 		$settings['get_interval'] = $settings['get_ratio'];
 		$settings['set_interval'] = $settings['set_ratio'];
@@ -376,6 +376,9 @@ function reset_cresults() {
 	global $cresults;
 	global $totals;
 
+	$cresults['set_latency'] = 0;
+	$cresults['get_latency'] = 0;
+
 	$totals['set_total'] = $totals['set_total'] + $cresults['set_count'];
 	$cresults['set_count'] = 0;
 
@@ -394,7 +397,9 @@ function reset_cresults() {
 	$totals['set_fail_total'] = $totals['set_fail_total'] + $cresults['set_fail_count'];
 	$cresults['set_fail_count'] = 0;
 
-	$cresults['transferred'] = 0;
+	$cresults['set_transferred'] = 0;
+
+	$cresults['get_transferred'] = 0;
 
 	$cresults['operations'] = 0;
 
@@ -458,9 +463,9 @@ function mc_set($id) {
 		$tmp_data = $data['data'];
 	}
 	if ($memcache->set($key, $tmp_data)) {
-		$cresults['transferred'] = $cresults['transferred'] + strlen($data['data']);
+		$cresults['set_transferred'] = $cresults['set_transferred'] + strlen($data['data']);
 		if ($settings['checksum'] == TRUE) {
-			$cresults['transferred'] = $cresults['transferred'] + strlen($data['md5']);
+			$cresults['set_transferred'] = $cresults['set_transferred'] + strlen($data['md5']);
 		}
 		$cresults['operations']++;
 		$cresults['total_operations']++;
@@ -487,6 +492,7 @@ function mc_get($key_ids) {
 	foreach ($key_ids as $id) {
 		$keys[] = $settings['prefix'] . $id;
 	}
+
 	$data = $memcache->get($keys);
 
 	/* Check to see if data is not an array for danga memcachelib 3.x */
@@ -503,10 +509,10 @@ function mc_get($key_ids) {
 				} else {
 					$cresults['hit_count']++;
 				}
-				$cresults['transferred'] = $cresults['transferred'] + strlen($tmp_data['data']);
-				$cresults['transferred'] = $cresults['transferred'] + strlen($tmp_data['md5']);
+				$cresults['get_transferred'] = $cresults['get_transferred'] + strlen($tmp_data['data']);
+				$cresults['get_transferred'] = $cresults['get_transferred'] + strlen($tmp_data['md5']);
 			} else {
-				$cresults['transferred'] = $cresults['transferred'] + strlen($tmp_data);
+				$cresults['get_transferred'] = $cresults['get_transferred'] + strlen($tmp_data);
 				$cresults['hit_count']++;
 			}
 		}
@@ -544,7 +550,8 @@ function run() {
 	$cresults['object_size'] = $settings['object_size'];
 	$cresults['total_operations'] = 0;
 	$cresults['operations'] = 0;
-	$cresults['transferred'] = 0;
+	$cresults['set_transferred'] = 0;
+	$cresults['get_transferred'] = 0;
 	$cresults['set_count'] = 0;
 	$totals['set_total'] = 0;
 	$cresults['get_count'] = 0;
@@ -558,7 +565,13 @@ function run() {
 	$cresults['set_fail_count'] = 0;
 	$totals['set_fail_total'] = 0;
 	$cresults['key_count'] = 0;
+	$cresults['set_latency'] = 0;
+	$cresults['get_latency'] = 0;
 
+	$cresults['settings'] = $settings;
+
+	$set_latency = 0;
+	$get_latency = 0;
 	$exit_loop = FALSE;
 	$set_id = $settings['offset'];
 	$get_id = $settings['offset'];
@@ -576,11 +589,15 @@ function run() {
 				$exit_loop = TRUE;
 				break;
 			}
+			$set_latency = microtime(TRUE);
 			if (mc_set($set_id)) {
 				if ($cresults['key_count'] < $settings['max_keys']) {
 					$cresults['key_count']++;
 				}
 			}
+			$set_latency = microtime(TRUE) - $set_latency;
+			$cresults['set_latency'] = $cresults['set_latency'] + $set_latency;
+
 			/* Check Access patter, R = Random, S = Sequential */
 			if ($settings['set_pattern'] == "R") {
 				$set_id = rand($settings['offset'], ($settings['max_keys'] + $settings['offset']));
@@ -617,9 +634,13 @@ function run() {
 					}
 					$get_ids[] = $get_id;
 				}
+				$get_latency = microtime(TRUE);
 				mc_get($get_ids);
+				$get_latency = microtime(TRUE) - $get_latency;
+				$cresults['get_latency'] = $cresults['get_latency'] + $get_latency;
 			}
 		}
+
 	}
 
 	$cresults['end_time'] = microtime(TRUE);

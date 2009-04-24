@@ -1,7 +1,7 @@
 #!/usr/bin/php
 <?php
 /*	Project:        Brutis
-	Version:        0.89
+	Version:        0.90
 	Author:         Zach Younker
 	Copyright:
 
@@ -65,21 +65,30 @@ class Net_Server_Handler_Talkback extends Net_Server_Handler {
 			$hps = round($totals['total_hits'] / $elapsed_time, 2);
 			$mps = round($totals['total_misses'] / $elapsed_time, 2);
 			$fps = round(($totals['set_fails'] + $totals['md5_fails']) / $elapsed_time, 2);
-			$mbps = round((($totals['total_transferred'] / 1024 / 1024) / $elapsed_time), 2);
-			$ops = round(($totals['operations'] / $elapsed_time), $settings['poll']);
-			print ("$sps Sets/sec, $gps Gets/Sec, $hps Hits/sec, $mps Misses/sec, " . $fps . " Fails/sec, " . $ops . " Ops/sec " . $mbps . " MB/sec, " . $clients . " Clients\n");
+			$mbps = round(((($totals['set_transferred'] + $totals['get_transferred']) / 1024 / 1024) / $elapsed_time), 2);
+			$ops = round(($totals['operations'] / $elapsed_time), 2);
+			if ($clients != 0) {
+				$set_latency = round((($totals['set_latency'] / $clients) / $elapsed_time), 2);
+				$get_latency = round((($totals['get_latency'] / $clients) / $elapsed_time), 2);
+			} else {
+				$set_latency = 0;
+				$get_latency = 0;
+			}
+			print ("$sps Sets/sec $set_latency Latency, $gps Gets/Sec $get_latency Latency, $hps Hits/sec, $mps Misses/sec, $fps Fails/sec, $ops Ops/sec $mbps MB/sec, $clients Clients\n");
 		}
 
 		if ($settings['filename'] != NULL) {
 			fwrite($foutput, $totals['last_write'] . ':' .
 				$totals['total_sets'] . ':' .
+				$totals['set_latency'] . ':' .
 				$totals['total_gets'] . ':' .
+				$totals['get_latency'] . ':' .
 				$totals['total_hits'] . ':' .
 				$totals['total_misses'] . ':' .
 				$totals['set_fails'] . ':' .
 				$totals['md5_fails'] . ':' .
 				$totals['operations'] . ':' .
-				$totals['total_transferred'] . ':' .
+				($totals['set_transferred'] + $totals['get_transferred']) . ':' .
 				$clients . "\n");
 		}
 	}
@@ -104,7 +113,7 @@ class Net_Server_Handler_Talkback extends Net_Server_Handler {
 		if ($settings['filename'] != NULL) {
 			if (!$foutput) {
 				$foutput = fopen($settings['filename'], 'w');
-				fwrite($foutput, "#timestamp:sets:gets:hits:misses:set_fails:md5_fails:operations:transferred:clients\n");
+				fwrite($foutput, "#timestamp:sets:set_latency:gets:get_latency:hits:misses:set_fails:md5_fails:operations:transferred:clients\n");
 			}
 		}
 	}
@@ -203,8 +212,17 @@ class Net_Server_Handler_Talkback extends Net_Server_Handler {
 		if (isset($data['md5_fail_count'])) {
 			$totals['md5_fails'] = $data['md5_fail_count'] + $totals['md5_fails'];
 		}
-		if (isset($data['transferred'])) {
-			$totals['total_transferred'] = $data['transferred'] + $totals['total_transferred'];
+		if (isset($data['set_transferred'])) {
+			$totals['set_transferred'] = $data['set_transferred'] + $totals['set_transferred'];
+		}
+		if (isset($data['get_transferred'])) {
+			$totals['get_transferred'] = $data['get_transferred'] + $totals['get_transferred'];
+		}
+		if (isset($data['set_latency'])) {
+			$totals['set_latency'] = $data['set_latency'] + $totals['set_latency'];
+		}
+		if (isset($data['get_latency'])) {
+			$totals['get_latency'] = $data['get_latency'] + $totals['get_latency'];
 		}
 
 		$current_time = microtime(TRUE);
@@ -221,13 +239,16 @@ class Net_Server_Handler_Talkback extends Net_Server_Handler {
 */
 		global $totals;
 
+		$totals['set_latency'] = 0;
+		$totals['get_latency'] = 0;
 		$totals['total_sets'] = 0;
 		$totals['total_gets'] = 0;
 		$totals['total_hits'] = 0;
 		$totals['total_misses'] = 0;
 		$totals['set_fails'] = 0;
 		$totals['md5_fails'] = 0;
-		$totals['total_transferred'] = 0;
+		$totals['set_transferred'] = 0;
+		$totals['get_transferred'] = 0;
 		$totals['operations'] = 0;
 		$totals['keys'] = 0;
 

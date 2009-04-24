@@ -1,6 +1,6 @@
 <?php
 /*	Project:        Brutis
-	Version:        0.89
+	Version:        0.90
 	Author:         Zach Younker
 	Copyright:
 
@@ -98,7 +98,16 @@ function valid_host($host) {
 			return TRUE;
 		}
 	} else {
-		return FALSE;
+		if(preg_match('/(\d+).(\d+).(\d+).(\d+)/', $host)) {
+			$ip = gethostbyaddr($host); 
+			if ($ip == $host) {
+				return FALSE;
+			} else {
+				return TRUE;
+			}
+		} else {
+			return FALSE;
+		}
 	}
 }
 
@@ -264,6 +273,7 @@ function parse_access_pattern($pattern, $arg) {
 		}
 	}
 }
+
 function parse_ratio($ratio, $arg) {
 /* 	parse_ratio()
 	@params mixed $ratio runtime argument array
@@ -314,9 +324,9 @@ function parse_checksum($checksum, $arg) {
 
 	check_arg($checksum, $arg);
 
-	$settings['checksum'] = TRUE;
+	$settings['checksum'] = FALSE;
 	if (isset($checksum[$arg])) {
-		$settings['checksum'] = FALSE;
+		$settings['checksum'] = TRUE;
 	}
 }
 
@@ -369,8 +379,8 @@ function parse_forks($options, $arg) {
 	$settings['forks'] = 1;
 	if (isset($options[$arg])) {
 		$settings['forks'] = (int) $options[$arg];
-		if ($settings['forks'] > 50 || $settings['forks'] < 1) {
-			print("Error setting forks to: " . $settings['forks'] . ", must be between 1-50!\n");
+		if ($settings['forks'] > 512 || $settings['forks'] < 1) {
+			print("Error setting forks to: " . $settings['forks'] . ", must be between 1-512!\n");
 			exit(1);
 		}
 	}

@@ -2,7 +2,7 @@
 <?php
 /*
 	Project:	Brutis
-	Version:	0.89
+	Version:	0.90
 	Author:		Zach Younker
 	Copyright:
 
@@ -65,9 +65,9 @@ class collector extends Task{
 		}
 		$options[] = '-c' . $this->args['collector']['server'] . ":". $this->args['collector']['port'];
 		if (isset($options)) {
-			pcntl_exec('lib/collector', $options);
+			pcntl_exec('lib/collector2', $options);
 		} else {
-			pcntl_exec('lib/collector', array());
+			pcntl_exec('lib/collector2', array());
 		}
 	}
 	function finish() {
@@ -100,7 +100,7 @@ class client extends Task{
 		if ($this->args['runtime'] != NULL) {
 			$options[] = '-t' . $this->args['runtime'];
 		}
-		if ($this->args['checksum'] == FALSE) {
+		if ($this->args['checksum'] == TRUE) {
 			$options[] = '-d';
 		}
 		$options[] = '-s' . $this->args['object_size'];
@@ -148,7 +148,7 @@ function init_settings($argc, $argv) {
 			. "	-z <#>				Key id Offset\n"
 			. "	-b <#>				Number of gets to batch together\n"
 			. "	-i <#>				Collector Poll time in seconds\n"
-			. "	-d 				Disable data checksum\n"
+			. "	-d 				Enable data checksum\n"
 			. "	-k <#>	 			Max keys\n"
 			. "	-p 				key prefix\n"
 			. "	-r <#:#>			Ratio Sets:Gets\n"
@@ -192,6 +192,11 @@ $tm = new TaskManager();
 
 /* Setting maxruntime for taskmanager class to kill client */
 $settings['maxruntime'] = 172800; 
+if ($settings['maxruntime'] < $settings['runtime']) {
+	$settings['maxruntime'] = $settings['runtime'] + 60; 
+} else {
+	$settings['maxruntime'] = 172800; 
+}
 
 /* Get node name */
 $host_info = posix_uname();
@@ -211,50 +216,6 @@ if ($settings['collector']['server'] == $hostname || $settings['collector']['ser
 /* Add clients to task manager to be executed. */
 for ($i = 1; $i <= $settings['forks']; $i++) {
 	$tm->add_task(new client(), $settings);
-}
-
-if ($settings['verbose']) {
-	$server_list = NULL;
-	for ($i = 0; $i < count($settings['memcache']); $i++) {
-		if ($i != (count($settings['memcache']) - 1)) {
-			$server_list .= $settings['memcache'][$i]['server'] . ":" .
-				$settings['memcache'][$i]['tcp_port'] . ':' .
-				$settings['memcache'][$i]['udp_port'] . ',';
-		} else {
-			$server_list .= $settings['memcache'][$i]['server'] . ":" .
-				$settings['memcache'][$i]['tcp_port'] . ':' .
-				$settings['memcache'][$i]['udp_port'];
-		}
-	}
-	print ("\nBrutis\n");
-	print ("--------------------------------------------------------\n");
-	print ("Ratio: " . $settings['set_ratio'] . ":" . $settings['get_ratio'] . "\n");
-	print ("Pattern: " . $settings['set_pattern'] . ":" . $settings['get_pattern'] . "\n");
-	print ("Forks: " . $settings['forks'] . "\n");
-	print ("Key Offset: " . $settings['offset'] . "\n");
-	print ("Max Keys: " . $settings['max_keys'] . "\n");
-	print ("Key Prefix: " . $settings['prefix'] . "\n");
-	print ("Batch: " . $settings['batch'] . "\n");
-	if ($settings['checksum'] == TRUE) {
-		print ("MD5 checksum: Enabled\n");
-	} else {
-		print ("MD5 checksum: Disabled\n");
-	}
-	print ("Poll Interval: " . $settings['poll'] . " seconds\n");
-	print ("Object Size: " . $settings['object_size'] . "\n");
-	if ($settings['filename'] != NULL) {
-		print("Output file: " . $settings['filename'] . "\n");
-	}
-	if ($settings['runtime'] != NULL) {
-		print ("Runtime: " . $settings['runtime'] . "\n");
-	}
-	if ($settings['operations'] != NULL) {
-		print ("Operations: " . $settings['operations'] . "\n");
-	}
-	print ("Collector: " . $settings['collector']['server'] . ":" . $settings['collector']['port'] . "\n");
-	print ("Memcache Library Version: " . $settings['memcachelib_version'] . "\n");
-	print ("Memcache Server(s): " . $server_list . "\n");
-	print ("--------------------------------------------------------\n\n");
 }
 
 /* Execute Tasks */

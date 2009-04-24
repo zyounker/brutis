@@ -36,6 +36,7 @@ Overview:
 Known Issues:
 	* duplicate memcache servers in the -x option fail to reconnect on disconnect or failure.
 	* Batch gets can cause misses if rand() picks the same key multiple times
+	* Total stats may not work on 32Bit arch. Looking into big int to work around php's lack of uint64_t
 
 Files:
 	./license License info 
@@ -43,6 +44,7 @@ Files:
 	./brutis Main executable.
 	./lib/client Memcache client
 	./lib/collector Statistic collector
+	./lib/collector2 New Statistic collector
 	./lib/functions.php Common functions 
 	./lib/taskmanager.php Taskmanager class
 
@@ -74,7 +76,7 @@ Options:
 		Host to connect or start collector on. Default is localhost's DNS name '<hostname>:9091'.
 
 	-d
-		Disable MD5 checksum.
+		Enable MD5 checksum.
 
 	-r {Set Ratio:Get Ratio}
 		Ratio of sets to gets. Default '1:10'.
@@ -104,15 +106,6 @@ Options:
 		Display help.
 
 
-
-Collector Output:
-	165.44 Sets/sec, 1652.69 Gets/Sec, 7.69 Hits/sec, 1645 Misses/sec, 0 Fails/sec, 1818.13 Ops/sec 0.04 MB/sec, 1 Clients
-	193.66 Sets/sec, 1934.19 Gets/Sec, 9.74 Hits/sec, 1924.45 Misses/sec, 0 Fails/sec, 2127.85 Ops/sec 0.05 MB/sec, 0 Clients
-
-	Sets and Gets are memcache operations
-	Hits, Misses, and fails are key transations
-
-
 Exit Codes:
 	Exit Code 0:	Success	
 	Exit Code 1:	Error
@@ -120,6 +113,15 @@ Exit Codes:
 
 
 Release Notes:
+	Version - 0.90
+		* Added collector2 and made default
+		* Changed checksum to default to disabled
+		* Added new exit summary in collector2
+		* Fixed ratio rounding bug in set_intervals()
+		* Added latency
+		* Fixed rounding bug in operations displayed by collector.
+		* Changed random data to use chr(1-255).
+		* Fixed bug in valid hosts not allowing IP addresses.
 	Version - 0.89
 		* Rename to Brutis
 		* Do not allow batch gets greater then max keys.
