@@ -1,0 +1,429 @@
+#!/usr/bin/php
+<?php
+/*	Project:        Brutis
+	Version:        0.90
+	Author:         Zach Younker
+	Copyright:
+
+		Software License Agreement (BSD License)
+
+		Copyright (c) 2009, Gear Six, Inc.
+		All rights reserved.
+
+		Redistribution and use in source and binary forms, with or without
+		modification, are permitted provided that the following conditions are
+		met:
+
+		* Redistributions of source code must retain the above copyright
+		  notice, this list of conditions and the following disclaimer.
+
+		* Redistributions in binary form must reproduce the above
+		  copyright notice, this list of conditions and the following disclaimer
+		  in the documentation and/or other materials provided with the
+		  distribution.
+
+		* Neither the name of Gear Six, Inc. nor the names of its
+		  contributors may be used to endorse or promote products derived from
+		  this software without specific prior written permission.
+
+		THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+		"AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+		LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+		A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+		OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+		SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+		LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+		DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+		THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+		(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+		OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+*/
+
+/* Set error reporting to all and memory limit to 32M */
+ini_set('memory_limit', '32M');
+error_reporting(E_ALL);
+
+require_once('lib/functions.php');
+require_once('Net/Server.php');
+require_once 'Net/Server/Handler.php';
+
+define('FIELD_SIZE', 12);
+
+	function pad ($value) {
+		if (strlen($value) > FIELD_SIZE) {
+			$value = "      XXXX.XX";
+		} else {
+			while (strlen($value) < FIELD_SIZE) {
+				$value = " " . $value;
+			}
+		}
+		return $value;
+	}
+
+class Net_Server_Handler_Talkback extends Net_Server_Handler {
+	function clear_screen() {
+		$codes =  array(27, 91, 72, 27, 91, 50, 74);
+		foreach ($codes as $code) {
+			print(chr($code));
+		}
+	}  
+	function summary() {
+		global $totals;
+
+		$sample = array();
+		$sample['key_count'] = 0;
+		$sample['set_count'] = 0;
+		$sample['get_count'] = 0;
+		$sample['hit_count'] = 0;
+		$sample['miss_count'] = 0;
+		$sample['set_fail_count'] = 0;
+		$sample['md5_fail_count'] = 0;
+		$sample['set_transferred'] = 0;
+		$sample['get_transferred'] = 0;
+		$sample['operations'] = 0;
+		$sample['set_latency'] = 0;
+		$sample['get_latency'] = 0;
+
+		foreach ($totals as $client_id=>$total) {
+			foreach ($total['raw'] as $key=>$value) {
+				$sample[$key] = $sample[$key] + $value;
+			}
+		}
+		$summary =  ("\n\nTotal Operations:\t" . pad($sample['operations']) . "\n" .
+				"Total Sets:\t\t" . pad($sample['set_count']) . "\n" .
+				"Total Gets:\t\t" . pad($sample['get_count']) . "\n" .
+				"Total Hits:\t\t" . pad($sample['hit_count']) . "\n" .
+				"Total Misses:\t\t" . pad($sample['miss_count']) . "\n" .
+				"Total Set Fails:\t" . pad($sample['set_fail_count']) . "\n" .
+				"Total MD5 Fails:\t" . pad($sample['md5_fail_count']) . "\n" .
+				"Total Keys:\t\t" . pad($sample['key_count']) . "\n" .
+				"Total Transferred:\t" . pad($sample['set_transferred'] + $sample['get_transferred']) . "\n" .
+				"\n");
+		return $summary;
+	}
+
+	function output_data($elapsed_time) {
+/*		output_data()
+		output stats to screen/disk
+		@param $elapsed_time int
+*/
+		global $settings;
+		global $totals;
+		global $foutput;
+		global $clients;
+		global $last_write;
+
+		$sample = array();
+		$sample['key_count'] = 0;
+		$sample['set_count'] = 0;
+		$sample['get_count'] = 0;
+		$sample['hit_count'] = 0;
+		$sample['miss_count'] = 0;
+		$sample['set_fail_count'] = 0;
+		$sample['md5_fail_count'] = 0;
+		$sample['set_transferred'] = 0;
+		$sample['get_transferred'] = 0;
+		$sample['operations'] = 0;
+		$sample['set_latency'] = 0;
+		$sample['get_latency'] = 0;
+
+		if ($settings['verbose']) {
+			foreach ($totals as $client_id=>$total) {
+				foreach ($total['sample'] as $key=>$value) {
+					$sample[$key] = $sample[$key] + $value;
+				}
+			}
+			$sps = number_format($sample['set_count'] / $elapsed_time, 2, '.', ',');
+			$gps = number_format($sample['get_count'] / $elapsed_time, 2, '.', ',');
+			$hps = number_format($sample['hit_count'] / $elapsed_time, 2, '.', ',');
+			$mps = number_format($sample['miss_count'] / $elapsed_time, 2, '.', ',');
+			$sfps = number_format($sample['set_fail_count'] / $elapsed_time, 2, '.', ',');
+			$mfps = number_format($sample['md5_fail_count'] / $elapsed_time, 2, '.', ',');
+			$tfps = number_format(($sample['md5_fail_count'] + $sample['set_fail_count']) / $elapsed_time, 2, '.', ',');
+			$tmbps = number_format(((($sample['set_transferred'] + $sample['get_transferred']) / 1024 / 1024) / $elapsed_time), 2, '.', ',');
+			$smbps = number_format((($sample['set_transferred'] / 1024 / 1024) / $elapsed_time), 2, '.', ',');
+			$gmbps = number_format((($sample['get_transferred'] / 1024 / 1024) / $elapsed_time), 2, '.', ',');
+			$ops = number_format(($sample['operations'] / $elapsed_time), 2, '.', ',');
+
+			if ($clients != 0) {
+				$set_latency = number_format((($sample['set_latency'] / $clients) / $elapsed_time), 2, '.', ',');
+				$get_latency = number_format((($sample['get_latency'] / $clients) / $elapsed_time), 2, '.', ',');
+				$total_latency = number_format(((($sample['get_latency'] + $sample['set_latency']) / $clients) / $elapsed_time), 2, '.', ',');
+			} else {
+				$set_latency = number_format(0, 2, '.', ',');
+				$get_latency = number_format(0, 2, '.', ',');
+				$total_latency = number_format(0, 2, '.', ',');
+			}
+
+			self::clear_screen();
+
+			print  ("Brutis                                                     " . pad($clients) ." Clients\n\n" .
+				'Type   ' . pad('Ops/sec') . pad('Hits/sec') . pad('Misses/sec') . pad('Fails/sec') . pad('Latency') . pad('MB/sec') . "\n" .
+				"-------------------------------------------------------------------------------\n" .
+				'Sets:  ' . pad($sps) . pad('---') . pad('---') . pad($sfps) . pad($set_latency) . pad($smbps) . "\n" .
+				'Gets:  ' . pad($gps) . pad($hps) . pad($mps) . pad($mfps) . pad($get_latency) . pad($gmbps) . "\n" .
+				'Totals:' . pad($ops) . pad($hps) . pad($mps) . pad($tfps) . pad($total_latency) . pad($tmbps) . "\n" .
+				"-------------------------------------------------------------------------------\n\n" .
+
+				"                   SETS                                 GETS\n" .
+				"-------------------------------------------------------------------------------\n" .
+				"#" . pad('Ops/sec') . pad('Latency') . pad('MB/sec') . " " . pad('Ops/sec') . pad('Latency') . pad('MB/sec') . "\n" .
+				"-------------------------------------     -------------------------------------\n");
+
+			foreach ($totals as $client_id=>$total) {
+				if (isset($total['settings'])) {
+					$c_set_latency = number_format(($total['sample']['set_latency'] / $elapsed_time), 2, '.', ',');
+					$c_get_latency = number_format(($total['sample']['get_latency'] / $elapsed_time), 2, '.', ',');
+					$c_sps = number_format($total['sample']['set_count'] / $elapsed_time, 2, '.', ',');
+					$c_gps = number_format($total['sample']['get_count'] / $elapsed_time, 2, '.', ',');
+					$c_smbps = number_format((($total['sample']['set_transferred'] / 1024 / 1024) / $elapsed_time), 2, '.', ',');
+					$c_gmbps = number_format((($total['sample']['get_transferred'] / 1024 / 1024) / $elapsed_time), 2, '.', ',');
+					$c_ratio = $total['settings']['set_ratio'] . ':' . $total['settings']['get_ratio'];
+					$c_pattern = $total['settings']['set_pattern'] . ':' . $total['settings']['get_pattern'];
+					if ($total['settings']['checksum'] == TRUE) {
+						$c_checksum = "TRUE";
+					} else {
+						$c_checksum = "FALSE";
+					}
+	
+					printf($client_id . pad($c_sps) . pad($c_set_latency) . pad($c_smbps) . " " . pad($c_gps) . pad($c_get_latency) . pad($c_gmbps) . "\n");
+				}
+			}
+		}
+
+		if ($settings['filename'] != NULL) {
+			fwrite($foutput, $last_write . ':' .
+				$sample['set_count'] . ':' .
+				$set_latency . ':' .
+				$sample['get_count'] . ':' .
+				$get_latency . ':' .
+				$sample['hit_count'] . ':' .
+				$sample['miss_count'] . ':' .
+				$sample['set_fail_count'] . ':' .
+				$sample['md5_fail_count'] . ':' .
+				$sample['operations'] . ':' .
+				$sample['set_transferred'] . ':' .
+				$sample['get_transferred'] . ':' .
+				$clients . "\n");
+		}
+	}
+
+	function onStart() {
+/*		onStart()
+		initialize variables, open output file  on startup
+*/
+		global $totals;
+		global $foutput;
+		global $settings;
+		global $in_service;
+		global $last_write;
+
+		$in_service = TRUE;
+		$last_write = microtime(TRUE);
+
+		self::reset_samples();
+
+		/* if filename != NULL then we need to output results to file */
+		if ($settings['filename'] != NULL) {
+			if (!$foutput) {
+				$foutput = fopen($settings['filename'], 'w');
+				fwrite($foutput, "#timestamp:sets:set_latency:gets:get_latency:hits:misses:set_fails:md5_fails:operations:set_transferred:get_transferred:clients\nSTART\n");
+			}
+		}
+	}
+
+	function onShutdown() {
+/*		onShutdown()
+		All clients disconnected, cleanup and exit
+*/
+		global $totals;
+		global $foutput;
+		global $settings;
+		global $in_service;
+		global $last_write;
+
+		if ($in_service == TRUE) {
+			$in_service = FALSE;
+			$current_time = microtime(TRUE);
+			$elapsed_time = $current_time - $last_write;
+			$last_write = $current_time;
+			self::output_data($elapsed_time);
+
+			if ($settings['verbose']) {
+				print(self::summary());
+			}
+
+			if ($settings['filename'] != NULL) {
+				fwrite($foutput, "END\n" .
+					self::summary());
+				fclose($foutput);
+			}
+		}
+	}
+
+	function OnConnect ($client_id = 0) {
+/*		onConnect() {
+		new client connect
+*/
+		global $clients;
+		global $totals;
+
+		$totals[$client_id] = array();
+		$totals[$client_id]['raw'] = array();
+		$totals[$client_id]['raw']['key_count'] = 0;
+		$totals[$client_id]['raw']['operations'] = 0; 
+		$totals[$client_id]['raw']['set_count'] = 0;
+		$totals[$client_id]['raw']['get_count'] = 0;
+		$totals[$client_id]['raw']['hit_count'] = 0;
+		$totals[$client_id]['raw']['miss_count'] = 0;
+		$totals[$client_id]['raw']['set_fail_count'] = 0;
+		$totals[$client_id]['raw']['md5_fail_count'] = 0;
+		$totals[$client_id]['raw']['set_transferred'] = 0;
+		$totals[$client_id]['raw']['get_transferred'] = 0;
+
+		$totals[$client_id]['sample'] = array();
+		$totals[$client_id]['sample']['key_count'] = 0;
+		$totals[$client_id]['sample']['operations'] = 0; 
+		$totals[$client_id]['sample']['set_count'] = 0;
+		$totals[$client_id]['sample']['get_count'] = 0;
+		$totals[$client_id]['sample']['hit_count'] = 0;
+		$totals[$client_id]['sample']['miss_count'] = 0;
+		$totals[$client_id]['sample']['set_fail_count'] = 0;
+		$totals[$client_id]['sample']['md5_fail_count'] = 0;
+		$totals[$client_id]['sample']['set_transferred'] = 0;
+		$totals[$client_id]['sample']['get_transferred'] = 0;
+		$totals[$client_id]['sample']['set_latency'] = 0;
+		$totals[$client_id]['sample']['get_latency'] = 0;
+
+		$clients++;
+
+	}
+
+	function OnClose($client_id = 0) {
+/*		onClose()
+		Client disconnected
+*/
+		global $clients;
+
+		$clients--;
+
+		if ($clients == 0) {
+			exit(0);
+		}
+	}
+
+	function onReceiveData ($client_id = 0, $data = '') {
+/*		onReceiveData()
+		New incoming data from client
+*/
+		global $totals;
+		global $settings;
+		global $last_write;
+
+		if (!$data = unserialize($data)) {
+			print ("Error in collector data\n");
+			$this->_server->sendData($client_id, "err\n");
+			break;
+		} else {
+			$this->_server->sendData($client_id, "ack\n");
+		}
+
+		if (isset($data['key_count'])) {
+			$totals[$client_id]['sample']['key_count'] = $totals[$client_id]['sample']['key_count'] + $data['key_count'];		
+			$totals[$client_id]['raw']['key_count'] = $totals[$client_id]['raw']['key_count'] + $data['key_count'];		
+		}
+		if (isset($data['operations'])) {
+			$totals[$client_id]['sample']['operations'] = $totals[$client_id]['sample']['operations'] + $data['operations'];		
+			$totals[$client_id]['raw']['operations'] = $totals[$client_id]['raw']['operations'] + $data['operations'];		
+		}
+		if (isset($data['set_count'])) {
+			$totals[$client_id]['sample']['set_count'] = $totals[$client_id]['sample']['set_count'] + $data['set_count'];		
+			$totals[$client_id]['raw']['set_count'] = $totals[$client_id]['raw']['set_count'] + $data['set_count'];		
+		}
+		if (isset($data['hit_count'])) {
+			$totals[$client_id]['sample']['hit_count'] = $totals[$client_id]['sample']['hit_count'] + $data['hit_count'];		
+			$totals[$client_id]['raw']['hit_count'] = $totals[$client_id]['raw']['hit_count'] + $data['hit_count'];		
+		}
+		if (isset($data['get_count'])) {
+			$totals[$client_id]['sample']['get_count'] = $totals[$client_id]['sample']['get_count'] + $data['get_count'];		
+			$totals[$client_id]['raw']['get_count'] = $totals[$client_id]['raw']['get_count'] + $data['get_count'];		
+		}
+		if (isset($data['miss_count'])) {
+			$totals[$client_id]['sample']['miss_count'] = $totals[$client_id]['sample']['miss_count'] + $data['miss_count'];		
+			$totals[$client_id]['raw']['miss_count'] = $totals[$client_id]['raw']['miss_count'] + $data['miss_count'];		
+		}
+		if (isset($data['set_fail_count'])) {
+			$totals[$client_id]['sample']['set_fail_count'] = $totals[$client_id]['sample']['set_fail_count'] + $data['set_fail_count'];		
+			$totals[$client_id]['raw']['set_fail_count'] = $totals[$client_id]['raw']['set_fail_count'] + $data['set_fail_count'];		
+		}
+		if (isset($data['md5_fail_count'])) {
+			$totals[$client_id]['sample']['md5_fail_count'] = $totals[$client_id]['sample']['md5_fail_count'] + $data['md5_fail_count'];		
+			$totals[$client_id]['raw']['md5_fail_count'] = $totals[$client_id]['raw']['md5_fail_count'] + $data['md5_fail_count'];		
+		}
+		if (isset($data['set_transferred'])) {
+			$totals[$client_id]['sample']['set_transferred'] = $totals[$client_id]['sample']['set_transferred'] + $data['set_transferred'];		
+			$totals[$client_id]['raw']['set_transferred'] = $totals[$client_id]['raw']['set_transferred'] + $data['set_transferred'];		
+		}
+		if (isset($data['get_transferred'])) {
+			$totals[$client_id]['sample']['get_transferred'] = $totals[$client_id]['sample']['get_transferred'] + $data['get_transferred'];		
+			$totals[$client_id]['raw']['get_transferred'] = $totals[$client_id]['raw']['get_transferred'] + $data['get_transferred'];		
+		}
+		if (isset($data['set_latency'])) {
+			$totals[$client_id]['sample']['set_latency'] = $totals[$client_id]['sample']['set_latency'] + $data['set_latency'];		
+		}
+		if (isset($data['get_latency'])) {
+			$totals[$client_id]['sample']['get_latency'] = $totals[$client_id]['sample']['get_latency'] + $data['get_latency'];		
+		}
+
+		if (isset($data['settings'])) {
+			$totals[$client_id]['settings'] = $data['settings'];
+		}
+
+		$current_time = microtime(TRUE);
+		$elapsed_time = $current_time - $last_write;
+		if ($elapsed_time >= $settings['poll']) {
+			$last_write = $current_time;
+			self::output_data($elapsed_time);
+			self::reset_samples();
+		}
+	}
+
+	function reset_samples() {
+/*		reset counters
+*/
+		global $totals;
+
+		foreach ($totals as $client_id=>$total) {
+			foreach ($total['sample'] as $key=>$value) {
+				$totals[$client_id]['sample'][$key] = 0;
+			}
+		}
+	}
+}
+
+/* MAIN */ 
+
+$in_service = FALSE;
+$clients = 0;
+$totals = array();
+$settings = array();
+
+$options = getopt('o:vi:c:');
+
+parse_collector($options, 'c');
+parse_verbose($options, 'v');
+parse_poll($options, 'i');
+parse_output($options, 'o');
+
+/* Start collector on requested ip port */
+$server  = &Net_Server::create('sequential', $settings['collector']['server'], $settings['collector']['port']);
+$server->setDebugMode(FALSE, "text");
+$handler = &new Net_Server_Handler_Talkback;
+$server->setCallbackObject($handler);
+
+pcntl_signal(SIGINT, array(&$handler, 'onShutdown'), FALSE);
+
+$server->start();
+
+?>
