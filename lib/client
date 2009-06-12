@@ -1,42 +1,42 @@
 #!/usr/bin/php
 <?php
 /*	Project:        Brutis
-	Version:        0.90.
-	Author:         Zach Younker
-	Copyright:
+Version:        0.91.
+Author:         Zach Younker
+Copyright:
 
-		Software License Agreement (BSD License)
+	Software License Agreement (BSD License)
 
-		Copyright (c) 2009, Gear Six, Inc.
-		All rights reserved.
+	Copyright (c) 2009, Gear Six, Inc.
+	All rights reserved.
 
-		Redistribution and use in source and binary forms, with or without
-		modification, are permitted provided that the following conditions are
-		met:
+	Redistribution and use in source and binary forms, with or without
+	modification, are permitted provided that the following conditions are
+	met:
 
-		* Redistributions of source code must retain the above copyright
-		 notice, this list of conditions and the following disclaimer.
+	* Redistributions of source code must retain the above copyright
+	 notice, this list of conditions and the following disclaimer.
 
-		* Redistributions in binary form must reproduce the above
-		 copyright notice, this list of conditions and the following disclaimer
-		 in the documentation and/or other materials provided with the
-		 distribution.
+	* Redistributions in binary form must reproduce the above
+	 copyright notice, this list of conditions and the following disclaimer
+	 in the documentation and/or other materials provided with the
+	 distribution.
 
-		* Neither the name of Gear Six, Inc. nor the names of its
-		 contributors may be used to endorse or promote products derived from
-		 this software without specific prior written permission.
+	* Neither the name of Gear Six, Inc. nor the names of its
+	 contributors may be used to endorse or promote products derived from
+	 this software without specific prior written permission.
 
-		THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-		"AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
-		LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
-		A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
-		OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
-		SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
-		LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
-		DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
-		THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-		(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-		OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+	THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+	"AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+	LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+	A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+	OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+	SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+	LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+	DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+	THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+	(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+	OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 */
 
@@ -51,68 +51,74 @@ require_once('functions.php');
 
 /* Turn on all error reporting and set memory limit to 32M */
 error_reporting(E_ALL);
-ini_set('memory_limit', '32M');
+ini_set('memory_limit', '512M');
 
 function init_settings($argc, $argv) {
 /*	init_settings()
-	Parse commandline arguments and populate $settings with data
-	@params int $argc number of arguments 
-	@params mixed $argv array of runtime arguments
+Parse commandline arguments and populate $settings with data
+@params int $argc number of arguments 
+@params mixed $argv array of runtime arguments
 */
-	$options = getopt("x:a:z:dc:p:r:t:n:k:ws:vb:hi:");
+$options = getopt("Px:a:z:dc:p:r:t:n:k:ws:vb:hi:m:R:");
 
-	if (isset($options['h']) || !isset($options['x'])) {
-		print (
-			"\nUsage: ".$argv[0]." -x <server_list> [OPTIONS]\n"
-			. "      -c <collector>                  Specifiy collector host\n"
-			. "      -a <#:#>                        Access Pattern (r=random, s=sequential)\n"
-			. "      -z <#>                          Key id Offset\n"
-			. "      -b <#>                          Number of gets to batch together\n"
-			. "      -i <#>                          Collector Poll time in seconds\n"
-			. "      -d                              Enable data checksum\n"
-			. "      -k <#>                          Max keys\n"
-			. "      -p                              key prefix\n"
-			. "      -r <#:#>                        Ratio Sets:Gets\n"
-			. "      -n <#>                          Total number of operations\n"
-			. "      -t <#>                          Time in seconds to run tests default(48hours)\n"
-			. "      -s <#>                          Object size in bytes\n"
-			. "      -x <serverlist,>                list of servers (la-vip-1:11211:11211,la-vip-2:11211:11211,..)\n"
-			. "      -v                              Verbose\n"
-			. "      -h                              Help\n"
-			. "\n\n");
-		exit(EXIT_ERROR);
-	}
+if (isset($options['h']) || !isset($options['x'])) {
+	print (
+		"\nUsage: ".$argv[0]." -x <server_list> [OPTIONS]\n"
+		. "      -c <collector>                  Specifiy collector host\n"
+		. "      -a <#:#>                        Access Pattern (r=random, s=sequential)\n"
+		. "      -z <#>                          Key id Offset\n"
+		. "      -b <#>                          Number of gets to batch together\n"
+		. "      -i <#>                          Collector Poll time in seconds\n"
+		. "      -d                              Enable data checksum\n"
+		. "      -k <#>                          Max keys\n"
+		. "      -P                              Enable Persistent connections\n"
+		. "      -m <#>                          ConnectionPool multiplier\n"
+		. "      -p <prefix>                     key prefix\n"
+		. "      -r <#:#>                        Ratio Sets:Gets\n"
+		. "      -R <#>                          Non-persistent disconnect/connect timer\n"
+		. "      -n <#>                          Total number of operations\n"
+		. "      -t <#>                          Time in seconds to run tests default(48hours)\n"
+		. "      -s <#>                          Object size in bytes\n"
+		. "      -x <serverlist,>                list of servers (la-vip-1:11211:11211,la-vip-2:11211:11211,..)\n"
+		. "      -v                              Verbose\n"
+		. "      -h                              Help\n"
+		. "\n\n");
+	exit(EXIT_ERROR);
+}
 
-	parse_mc_servers($options, 'x');
-	parse_collector($options, 'c');
-	parse_offset($options, 'z');
-	parse_access_pattern($options, 'a');
-	parse_checksum($options, 'd');
-	parse_prefix($options, 'p');
-	parse_ratio($options, 'r');
-	parse_runtime($options, 't');
-	parse_operations($options, 'n');
-	parse_keys($options, 'k');
-	parse_object_size($options, 's');
-	parse_verbose($options, 'v');
-	parse_batch($options, 'b');
-	parse_poll($options, 'i');
+parse_mc_servers($options, 'x');
+parse_collector($options, 'c');
+parse_offset($options, 'z');
+parse_access_pattern($options, 'a');
+parse_checksum($options, 'd');
+parse_persistent($options, 'P');
+parse_multiplier($options, 'm');
+parse_prefix($options, 'p');
+parse_ratio($options, 'r');
+parse_reconnect($options, 'R');
+parse_runtime($options, 't');
+parse_operations($options, 'n');
+parse_keys($options, 'k');
+parse_object_size($options, 's');
+parse_verbose($options, 'v');
+parse_batch($options, 'b');
+parse_poll($options, 'i');
 }
 
 function set_intervals () {
 /*      set_intervals()
-	Figure out interval for set's and get's.
-	set_intervals tries to ensure even distribution, but does round off the remainder!
+Figure out interval for set's and get's.
+set_intervals tries to ensure even distribution, but does round off the remainder!
 */
-	global $settings;
+global $settings;
 
-	if (($settings['set_ratio']==0) || ($settings['get_ratio'] == 0) || ($settings['set_ratio'] % $settings['get_ratio'] != 0)  || ($settings['get_ratio'] % $settings['set_ratio'] != 0)) {
-		/* if either are zero, then we don't need to do anything */
-		$settings['get_interval'] = $settings['get_ratio'];
-		$settings['set_interval'] = $settings['set_ratio'];
-	} else {
-		switch (TRUE) {
-			case ($settings['set_ratio'] > $settings['get_ratio']):
+if (($settings['set_ratio']==0) || ($settings['get_ratio'] == 0) || ($settings['set_ratio'] % $settings['get_ratio'] != 0)  || ($settings['get_ratio'] % $settings['set_ratio'] != 0)) {
+	/* if either are zero, then we don't need to do anything */
+	$settings['get_interval'] = $settings['get_ratio'];
+	$settings['set_interval'] = $settings['set_ratio'];
+} else {
+	switch (TRUE) {
+		case ($settings['set_ratio'] > $settings['get_ratio']):
 				/* doing more sets then gets */
 				$ratio = $settings['set_ratio'] / $settings['get_ratio'];
 				$settings['set_interval'] = round($ratio, 0);
@@ -274,20 +280,19 @@ function collector_connect() {
 	global $collector;
 	global $settings;
 
-	require_once('Net/Socket.php');
-		
-	$result = TRUE;
 
-	$collector = new Net_Socket();
-	$connection = NULL;
+	$errno = 0;
+	$errstr = '';
+
 	if ($settings['verbose']) {
 		print("Connecting to collector: " . $settings['collector']['server'] . ":" . $settings['collector']['port'] . "\n");
 	}
 
-	$connection = $collector->connect($settings['collector']['server'] . ":" . $settings['collector']['port'], true, 60);
-	if (PEAR::isError($connection)) {
+	$collector = fsockopen($settings['collector']['server'], $settings['collector']['port'], $errno, $errstr, MEMCACHE_TIMEOUT);
+
+	if (!$collector) {
 		print("Error connecting to collector: ". $settings['collector']['server'] . ":" . $settings['collector']['port'] . "\n");
-		print("Extended: " . $connection->getMessage($connection) . "\n");
+		print("Extended: $errno - $errstr\n");
 		exit(EXIT_ERROR);
 	}
 }
@@ -298,7 +303,7 @@ function collector_disconnect() {
 */
 	global $collector;
 
-	$collector->disconnect();
+	fclose($collector);
 }
 
 function mc_connect() {
@@ -308,31 +313,26 @@ function mc_connect() {
 	global $settings;
 	global $memcache;
 
-	$result = TRUE;
+	$i = 0;
 
-	if ($settings['memcachelib_version'] == 2) {
-		$memcache = new Memcache();
-	}
-	if ($settings['memcachelib_version'] == 3) {
-		$memcache = new MemcachePool();
-	}
-
-	foreach($settings['memcache'] as $mc) {
+	while ($i < ($settings['multiplier'])) {
 		if ($settings['memcachelib_version'] == 2) {
-			$memcache->connect($mc['server'],  $mc['tcp_port'], MEMCACHE_TIMEOUT);
-		}
-		if ($settings['memcachelib_version'] == 3) {
-			$memcache->connect($mc['server'],  $mc['tcp_port'], $mc['udp_port'], MEMCACHE_TIMEOUT);
+			$memcache[$i] = new Memcache();
 		}
 
-		if (!$memcache->getVersion()) {
-			print("Error connecting to memcache server: " . $mc['server'] . ":" . $mc['tcp_port'] . "\n");
-			exit(EXIT_ERROR);
-		} else {
-			if ($settings['verbose']) {
-				print("Connecting to memcached: " . $mc['server'] . ":" . $mc['tcp_port'] . "\n");
+		if ($settings['memcachelib_version'] == 3) {
+			$memcache[$i] = new MemcachePool();
+		}
+
+		foreach($settings['memcache'] as $mc) {
+			if ($settings['memcachelib_version'] == 2) {
+				$memcache[$i]->addserver($mc['server'],  $mc['tcp_port'], FALSE, 1, MEMCACHE_TIMEOUT);
+			}
+			if ($settings['memcachelib_version'] == 3) {
+				$memcache[$i]->addserver($mc['server'],  $mc['tcp_port'],0 , FALSE, 1, MEMCACHE_TIMEOUT);
 			}
 		}
+		$i++;
 	}
 }
 
@@ -341,8 +341,14 @@ function mc_disconnect() {
 	Disconnect from memcache instances 
 */
 	global $memcache;
+	global $settings;
 
-	memcache_close($memcache);
+	$i = 0;
+
+	while ($i < ($settings['multiplier'])) {
+		$memcache[$i]->close();
+		$i++;
+	}
 }
 
 function report_to_collector() {
@@ -352,13 +358,15 @@ function report_to_collector() {
 	global $collector;
 	global $cresults;
 
-	$result = 'err';
 	$error_count = 0;
+	$done = FALSE;
+	$result = '';
 
-	while ($result == 'err') {
-		$collector->writeline(serialize($cresults));
-		$result = $collector->readline();
-		if ($result == 'err') {
+	while ($result != "ack\n") {
+		fwrite($collector, serialize($cresults)."\n");
+		$result = fgets($collector);
+
+		if ($result == "err\n") {
 			print("Error sending data to collector, retrying.\n");
 			if ($error_count >= 5) {
 				print("Too many errors trying to send data to collector, exiting!\n");
@@ -424,6 +432,11 @@ function check_timeout() {
 		reset_cresults();
 	}
 
+	if ($elapsed > $settings['reconnect'] && $settings['persistent'] == FALSE) {
+		mc_disconnect();
+		mc_connect();
+	}
+
 
 	if ($settings['runtime'] != NULL) {
 		$current_time = microtime(TRUE) - $cresults['start_time'];
@@ -462,19 +475,25 @@ function mc_set($id) {
 	} else {
 		$tmp_data = $data['data'];
 	}
-	if ($memcache->set($key, $tmp_data)) {
-		$cresults['set_transferred'] = $cresults['set_transferred'] + strlen($data['data']);
-		if ($settings['checksum'] == TRUE) {
-			$cresults['set_transferred'] = $cresults['set_transferred'] + strlen($data['md5']);
+
+	$i = 0;
+
+	while ($i < ($settings['multiplier'])) {
+		if ($memcache[$i]->set($key, $tmp_data)) {
+			$cresults['set_transferred'] = $cresults['set_transferred'] + strlen($data['data']);
+			if ($settings['checksum'] == TRUE) {
+				$cresults['set_transferred'] = $cresults['set_transferred'] + strlen($data['md5']);
+			}
+			$cresults['operations']++;
+			$cresults['total_operations']++;
+			$cresults['set_count']++;
+		} else {
+			$cresults['set_fail_count']++;
+			return FALSE;
 		}
-		$cresults['operations']++;
-		$cresults['total_operations']++;
-		$cresults['set_count']++;
-		return TRUE;
-	} else {
-		$cresults['set_fail_count']++;
-		return FALSE;
+		$i++;
 	}
+	return TRUE;
 }
 
 function mc_get($key_ids) {
@@ -493,36 +512,42 @@ function mc_get($key_ids) {
 		$keys[] = $settings['prefix'] . $id;
 	}
 
-	$data = $memcache->get($keys);
+	$i = 0;
 
-	/* Check to see if data is not an array for danga memcachelib 3.x */
-	if (is_array($data)) {
-		if (count($data) < count($keys)) {
-			$cresults['miss_count'] = $cresults['miss_count'] + (count($keys) - count($data));
-		}
-		foreach ($data as $key=>$tmp_data) {
-			if ($settings['checksum'] == TRUE) {
-				$tmp_data = decode_data($tmp_data);
-				$md5 = md5($tmp_data['data']);
-				if ($tmp_data['md5'] != $md5) {
-					$cresults['md5_fail_count']++;
+	while ($i < ($settings['multiplier'])) {
+		$data = NULL;
+		$data = $memcache[$i]->get($keys);
+
+		/* Check to see if data is not an array for danga memcachelib 3.x */
+		if (is_array($data)) {
+			if (count($data) < count($keys)) {
+				$cresults['miss_count'] = $cresults['miss_count'] + (count($keys) - count($data));
+			}
+			foreach ($data as $key=>$tmp_data) {
+				if ($settings['checksum'] == TRUE) {
+					$tmp_data = decode_data($tmp_data);
+					$md5 = md5($tmp_data['data']);
+					if ($tmp_data['md5'] != $md5) {
+						$cresults['md5_fail_count']++;
+					} else {
+						$cresults['hit_count']++;
+					}
+					$cresults['get_transferred'] = $cresults['get_transferred'] + strlen($tmp_data['data']);
+					$cresults['get_transferred'] = $cresults['get_transferred'] + strlen($tmp_data['md5']);
 				} else {
+					$cresults['get_transferred'] = $cresults['get_transferred'] + strlen($tmp_data);
 					$cresults['hit_count']++;
 				}
-				$cresults['get_transferred'] = $cresults['get_transferred'] + strlen($tmp_data['data']);
-				$cresults['get_transferred'] = $cresults['get_transferred'] + strlen($tmp_data['md5']);
-			} else {
-				$cresults['get_transferred'] = $cresults['get_transferred'] + strlen($tmp_data);
-				$cresults['hit_count']++;
 			}
+			$cresults['get_count']++;
+			$cresults['operations']++;
+			$cresults['total_operations']++;
+		} else {
+			$cresults['miss_count'] = $cresults['miss_count'] + (count($keys));
+			$cresults['operations']++;
+			$cresults['total_operations']++;
 		}
-		$cresults['get_count']++;
-		$cresults['operations']++;
-		$cresults['total_operations']++;
-	} else {
-		$cresults['miss_count'] = $cresults['miss_count'] + (count($keys));
-		$cresults['operations']++;
-		$cresults['total_operations']++;
+		$i++;
 	}
 
 	return $result;
@@ -582,6 +607,8 @@ function run() {
 		exit(1);
 	}
 
+		
+
 	while ($exit_loop == FALSE) {
 		mkseed();
 		for ($i = 0; $i < $settings['set_interval']; $i++) {
@@ -640,7 +667,6 @@ function run() {
 				$cresults['get_latency'] = $cresults['get_latency'] + $get_latency;
 			}
 		}
-
 	}
 
 	$cresults['end_time'] = microtime(TRUE);
@@ -669,6 +695,18 @@ $settings['block_count'] = 127;
 check_libs();
 init_block_size();
 gen_blocks();
+
+/* Get node name */
+$host_info = posix_uname();
+$nodename = $host_info['nodename'];
+
+if (eregi('.', $nodename)) {
+	$e_nodename = explode(".", $nodename);
+	$settings['hostname'] = $e_nodename[0];
+} else {
+	$settings['hostname'] = $nodename;
+}
+
 
 if ($settings['verbose']) {
 	printf("object_size: " . $settings['object_size'] . "\n");

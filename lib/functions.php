@@ -1,6 +1,6 @@
 <?php
 /*	Project:        Brutis
-	Version:        0.90
+	Version:        0.91
 	Author:         Zach Younker
 	Copyright:
 
@@ -53,17 +53,6 @@ function check_libs() {
 			$settings['memcachelib_version'] = 3;
 		}
 	}
-
-        @include("Net/Server.php");
-        if (class_exists("Net_Server") == 0) {
-                printf("Error, Missing required library 'Net_Server', exiting.\n");
-                exit(1);
-        }
-        @include("Net/Socket.php");
-        if (class_exists("Net_Socket") == 0) {
-                printf("Error, Missing required library 'Net_Socket', exiting.\n");
-                exit(1);
-        }
 }
 
 
@@ -330,6 +319,40 @@ function parse_checksum($checksum, $arg) {
 	}
 }
 
+function parse_multiplier($multiplier, $arg) {
+/* 	parse_multiplier()
+	@params mixed $multiplier runtime argument array
+	@params string $arg variable name that contains multiplier setting
+*/
+	global $settings;
+
+	check_arg($multiplier, $arg);
+
+	$settings['multiplier'] = 1;
+	if (isset($multiplier[$arg])) {
+		$settings['multiplier'] = (int) $multiplier[$arg];
+		if ($settings['multiplier'] < 1) {
+			printf("Error, Can not set mutiplier less then 1!\n");
+			exit(1);
+		}
+	}
+}
+
+function parse_persistent($persistent, $arg) {
+/* 	parse_persistent()
+	@params mixed $persistent runtime argument array
+	@params string $arg variable name that contains persistent setting
+*/
+	global $settings;
+
+	check_arg($persistent, $arg);
+
+	$settings['persistent'] = FALSE;
+	if (isset($persistent[$arg])) {
+		$settings['persistent'] = TRUE;
+	}
+}
+
 function parse_prefix($prefix, $arg) {
 /* 	parse_prefix()
 	@params mixed $perfix runtime argument array
@@ -477,6 +500,25 @@ function parse_batch($batch, $arg) {
 		$settings['batch'] = (int) $batch[$arg];
 		if ($settings['batch'] <= 0) {
 			printf("Error setting batch to " . $settings['batch'] . ", Must be > 0!\n");
+			exit(1);
+		}
+	}
+}
+
+function parse_reconnect($reconnect, $arg) {
+/* 	parse_reconnect()
+	@params mixed $reconnect runtime argument array
+	@params string $arg variable name that contains reconnect setting 
+*/
+	global $settings;
+
+	check_arg($reconnect, $arg);
+
+	$settings['reconnect'] = 120;
+	if (isset($reconnect[$arg])) {
+		$settings['reconnect'] = (int) $reconnect[$arg];
+		if ($settings['reconnect'] < 60) { 
+			printf("Error, reconnect must be > 60 seconds!\n");
 			exit(1);
 		}
 	}

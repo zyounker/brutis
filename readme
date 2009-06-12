@@ -22,8 +22,6 @@ Introduction:
 	For greater control, you can run the collector and the client as standalone programs.
 
 Required Libraries:
-	* pear/Net_Socket >= 1.0.8 - http://pear.php.net/package/Net_Socket
-	* pear/Net_Server >= 1.0.2 - http://pear.php.net/package/Net_Server
 	* pecl/memcache   >= 2.2.4 - http://pecl.php.net/package/memcache
 
 Overview:
@@ -34,9 +32,9 @@ Overview:
 	* report results to collector
 
 Known Issues:
-	* duplicate memcache servers in the -x option fail to reconnect on disconnect or failure.
 	* Batch gets can cause misses if rand() picks the same key multiple times
 	* Total stats may not work on 32Bit arch. Looking into big int to work around php's lack of uint64_t
+	* Connection multipler generates failed connections after ~16K connections/per client
 
 Files:
 	./license License info 
@@ -113,6 +111,17 @@ Exit Codes:
 
 
 Release Notes:
+	Version - 0.91
+		* Changed connection count on collector to client connection count
+		* Renamed collector3 to collector, removed old collectors
+		* Issue 7: Fixed latency bug
+		* Collector 3 introduced
+		* Removed dependency on Net_Server & Net_Socket
+		* Aggregate stats per client hostname
+		* Added connection Multiplier (Experimental)
+		* Switch from Connect to addServer to use connection pooling
+		* Added Persistent commandline option
+		* Added Reconnect timer for non-persistent connection tests
 	Version - 0.90
 		* Added collector2 and made default
 		* Changed checksum to default to disabled
