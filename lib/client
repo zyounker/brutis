@@ -1,9 +1,9 @@
 #!/usr/bin/php
 <?php
 /*	Project:        Brutis
-Version:        0.91.
-Author:         Zach Younker
-Copyright:
+	Version:        0.92.
+	Author:         Zach Younker
+	Copyright:
 
 	Software License Agreement (BSD License)
 
@@ -49,9 +49,22 @@ define('EXIT_WARN', 4);
 
 require_once('functions.php');
 
+/* Get node name */
+$host_info = posix_uname();
+$nodename = $host_info['nodename'];
+if (eregi('.', $nodename)) {
+	$e_nodename = explode(".", $nodename);
+	$hostname = $e_nodename[0];
+} else {
+	$hostname = $nodename;
+}
+
 /* Turn on all error reporting and set memory limit to 32M */
 error_reporting(E_ALL);
 ini_set('memory_limit', '512M');
+ini_set("display_errors", 1);
+ini_set("log_errors", 1);
+ini_set("error_log", "client-$hostname.log");
 
 function init_settings($argc, $argv) {
 /*	init_settings()
@@ -284,17 +297,17 @@ function collector_connect() {
 	$errno = 0;
 	$errstr = '';
 
-	if ($settings['verbose']) {
+        if ($settings['verbose']) {
 		print("Connecting to collector: " . $settings['collector']['server'] . ":" . $settings['collector']['port'] . "\n");
 	}
 
 	$collector = fsockopen($settings['collector']['server'], $settings['collector']['port'], $errno, $errstr, MEMCACHE_TIMEOUT);
-
 	if (!$collector) {
 		print("Error connecting to collector: ". $settings['collector']['server'] . ":" . $settings['collector']['port'] . "\n");
 		print("Extended: $errno - $errstr\n");
 		exit(EXIT_ERROR);
 	}
+
 }
 
 function collector_disconnect() {
@@ -425,10 +438,11 @@ function check_timeout() {
 	$current = microtime(TRUE);
 	$elapsed = $current - $cresults['last_write'];
 
-
 	if ($elapsed > $settings['poll']) {
 		$cresults['last_write'] = $current;
-		report_to_collector();
+                if ($settings['use_collector']) {
+			report_to_collector();
+		}
 		reset_cresults();
 	}
 
@@ -674,7 +688,10 @@ function run() {
 	$elapsed_time = $cresults['end_time'] - $cresults['start_time'];
 
 	$cresults['last_write'] = $cresults['end_time'];
-	report_to_collector();
+
+	if ($settings['use_collector']) {
+		report_to_collector();
+        }
 
 	if ($settings['verbose']) {
 		print("Completed " . $cresults['total_operations'] . " Operations in $elapsed_time\n");
@@ -715,13 +732,17 @@ if ($settings['verbose']) {
 }
 
 set_intervals();
-collector_connect();
+if ($settings['use_collector']) {
+	collector_connect();
+}
 mc_connect();
 
 run();
 
 mc_disconnect();
-collector_disconnect();
+if ($settings['use_collector']) {
+	collector_disconnect();
+}
 
 
 /* Exit code 4 if there were md5 checksum mismatches or set failures, otherwise exitcode 0 */

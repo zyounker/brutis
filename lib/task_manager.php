@@ -1,6 +1,6 @@
 <?php
 /*	Project:        Brutis
-	Version:        0.91
+	Version:        0.92
 	Author:         Zach Younker
 	Copyright:
 
@@ -87,7 +87,11 @@ class Task {
 
 	function maxruntime() {
 		/* Return maximum runtime */
-		return $this->args['maxruntime'];
+                if (isset($this->args['maxruntime'])) {
+ 			return $this->args['maxruntime'];
+                } else {
+                	return NULL;
+                }
 	}
 
 	function current_runtime() {
@@ -138,6 +142,9 @@ class TaskManager {
 	function check_runtime($signo) {
 		/* Check runtime of all tasks and kill if they run over maxruntime */
 		foreach ($this->pool as $task) {
+                        if ($task->maxruntime() == NULL) {
+                            continue;
+                        }
 			if ($task->maxruntime() <= $task->current_runtime()) {
 				printf("Hit timeout of " . $task->maxruntime() . " for PID: " . $task->pid());
 				printf("Sending SIGTERM(15) to PID: " . $task->pid());
@@ -149,6 +156,12 @@ class TaskManager {
 		$this->alarm = TRUE;
 	}
 
+	function handle_signal($signo) {
+            foreach ($this->pool as $task) {
+                posix_kill($task->pid(), $signo);
+            }
+        }
+
 	function run() {
 		/* Main loop to run child code */
 
@@ -157,6 +170,8 @@ class TaskManager {
 		/* setup SIGALRM to check for runaway tasks every 1 second */
 		declare(ticks = 1);
 		pcntl_signal(SIGALRM, array(&$this, 'check_runtime'), FALSE);
+                pcntl_signal(SIGINT, array(&$this, 'handle_signal'), FALSE);
+                pcntl_signal(SIGTERM, array(&$this, 'handle_signal'), FALSE);
 		pcntl_alarm(1);
 
 		/* go through pool and fork tasks */

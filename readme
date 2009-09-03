@@ -34,7 +34,6 @@ Overview:
 Known Issues:
 	* Batch gets can cause misses if rand() picks the same key multiple times
 	* Total stats may not work on 32Bit arch. Looking into big int to work around php's lack of uint64_t
-	* Connection multipler generates failed connections after ~16K connections/per client
 
 Files:
 	./license License info 
@@ -42,7 +41,6 @@ Files:
 	./brutis Main executable.
 	./lib/client Memcache client
 	./lib/collector Statistic collector
-	./lib/collector2 New Statistic collector
 	./lib/functions.php Common functions 
 	./lib/taskmanager.php Taskmanager class
 
@@ -64,6 +62,12 @@ Options:
 	-p {Key Prefix}
 		Data to use for key prefix. Keys are a concatenation of $prefix and $key_id. Default is 'brutis-'.
 
+        -P
+		Enable persistent connections
+
+        -R {time}
+		Non-persistent disconnect/reconnect interval
+
 	-i {Poll interval}
 		Interval in seconds to send data to collector and write out to output file.
 
@@ -72,6 +76,9 @@ Options:
 			
 	-c {Collector:Port}
 		Host to connect or start collector on. Default is localhost's DNS name '<hostname>:9091'.
+
+	-D 
+		Disable starting of local collector. (for remote reporting)
 
 	-d
 		Enable MD5 checksum.
@@ -82,11 +89,17 @@ Options:
 	-n {Operations}
 		Number of operations to perform before exiting.
 
+	-m {Multiplier}
+		Number of connection pools to create
+
 	-t {Time}
 		Time to run operations in seconds before exiting. Default '172800'.
 
 	-f {Forks}
 		Number of clients to fork. Default '1'.
+
+	-F {Format}
+		Format of output file. CSV or JSON supported. Default CSV.
 
 	-s {Size}
 		Size of object to generate for sets in bytes. Default 256.
@@ -111,6 +124,12 @@ Exit Codes:
 
 
 Release Notes:
+	Version - 0.92
+		* Fixed bug with taskmanager library hitting maxruntime and killing collector
+		* Fixed bug with collector starting when -v & -o not specified in client
+		* Fixed disconnect errors in collector 
+		* Issue 8: Fixed onShutdown() not being called in collector
+                * Added JSON output format (experimental)
 	Version - 0.91
 		* Changed connection count on collector to client connection count
 		* Renamed collector3 to collector, removed old collectors
@@ -202,7 +221,7 @@ Examples Usage:
 		cn-4: ./brutis -f 20 -x mc-1,mc-2,mc-3,mc-4 -a r:s -r 1:1 -v -s 64 -c cn-1
 
 	Multi client node, 20 forks, High connection count, single collector
-		cn-1: ./brutis -f 20 -x mc-1,mc-2,mc-3,mc-4,mc-1,mc-2,mc-3,mc-4 -a r:r -r 1:10 -v -c cn-1
-		cn-2: ./brutis -f 20 -x mc-1,mc-2,mc-3,mc-4,mc-1,mc-2,mc-3,mc-4 -a r:r -r 1:10 -v -c cn-1
-		cn-3: ./brutis -f 20 -x mc-1,mc-2,mc-3,mc-4,mc-1,mc-2,mc-3,mc-4 -a r:r -r 1:10 -v -c cn-1
-		cn-4: ./brutis -f 20 -x mc-1,mc-2,mc-3,mc-4,mc-1,mc-2,mc-3,mc-4 -a r:r -r 1:10 -v -c cn-1
+		cn-1: ./brutis -f 20 -x mc-1,mc-2,mc-3,mc-4 -m 20 -a r:r -r 1:10 -v -c cn-1
+		cn-2: ./brutis -f 20 -x mc-1,mc-2,mc-3,mc-4 -m 20 -a r:r -r 1:10 -v -c cn-1
+		cn-3: ./brutis -f 20 -x mc-1,mc-2,mc-3,mc-4 -m 20 -a r:r -r 1:10 -v -c cn-1
+		cn-4: ./brutis -f 20 -x mc-1,mc-2,mc-3,mc-4 -m 20 -a r:r -r 1:10 -v -c cn-1

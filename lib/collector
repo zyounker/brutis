@@ -1,7 +1,7 @@
 #!/usr/bin/php
 <?php
 /*	Project:        Brutis
-	Version:        0.91
+	Version:        0.92
 	Author:         Zach Younker
 	Copyright:
 
@@ -98,6 +98,7 @@ function start_server($address, $port) {
 			} 
 		}
 	}       
+	onShutdown();
 	socket_close($sock);
 }       
 
@@ -126,7 +127,8 @@ function clear_screen() {
 		print(chr($code));
 	}
  }
- 
+
+	
 function summary() {
 	global $totals;
 
@@ -175,6 +177,9 @@ function output_data($elapsed_time) {
 	global $last_write;
 
 	$sample = array();
+	$sample['timestamp'] = $last_write;
+	$sample['connections'] = $connections;
+	$sample['clients'] = $clients;
 	$sample['key_count'] = 0;
 	$sample['set_count'] = 0;
 	$sample['get_count'] = 0;
@@ -207,17 +212,17 @@ function output_data($elapsed_time) {
 		$ops = number_format(($sample['operations'] / $elapsed_time), 2, '.', ',');
 
 		if (($sample['set_latency'] != 0) && ($sample['set_count'] != 0)) {
-			$set_latency = number_format(($sample['set_latency'] / $sample['set_count']), 6, '.', ',');
+			$sample['set_latency'] = number_format(($sample['set_latency'] / $sample['set_count']), 6, '.', ',');
 		} else {
-			$set_latency = number_format(0, 6, '.', ',');
+			$sample['set_latency'] = number_format(0, 6, '.', ',');
 		}
 		if (($sample['get_latency'] != 0) && ($sample['get_count'] != 0)) {
-			$get_latency = number_format(($sample['get_latency'] / $sample['get_count']), 6, '.', ',');
+			$sample['get_latency'] = number_format(($sample['get_latency'] / $sample['get_count']), 6, '.', ',');
 		} else {
-			$get_latency = number_format(0, 6, '.', ',');
+			$sample['get_latency'] = number_format(0, 6, '.', ',');
 		}
-		if (($sample['set_latency'] != 0) && ($sample['get_latency'] != 0) && ($sample['set_count'] != 0) && ($sample['get_count'] != 0)) {
-			$total_latency = number_format(($set_latency + $get_latency), 6, '.', ',');
+		if (($sample['set_latency'] != 0) && ($sample['get_latency'] != 0)) {
+			$total_latency = number_format((($sample['set_latency'] + $sample['get_latency']) / 2), 6, '.', ',');
 		} else {
 			$total_latency = number_format(0, 6, '.', ',');
 		}
@@ -227,8 +232,8 @@ function output_data($elapsed_time) {
 		print  ("Brutis                                                 " . pad(number_format($connections, 0)) ." Connections\n\n" .
 			'Type   ' . pad('Ops/sec') . pad('Hits/sec') . pad('Misses/sec') . pad('Fails/sec') . pad('Latency') . pad('MB/sec') . "\n" .
 			"-------------------------------------------------------------------------------\n" .
-			'Sets:  ' . pad($sps) . pad('---') . pad('---') . pad($sfps) . pad($set_latency) . pad($smbps) . "\n" .
-			'Gets:  ' . pad($gps) . pad($hps) . pad($mps) . pad($mfps) . pad($get_latency) . pad($gmbps) . "\n" .
+			'Sets:  ' . pad($sps) . pad('---') . pad('---') . pad($sfps) . pad($sample['set_latency']) . pad($smbps) . "\n" .
+			'Gets:  ' . pad($gps) . pad($hps) . pad($mps) . pad($mfps) . pad($sample['get_latency']) . pad($gmbps) . "\n" .
 			'Totals:' . pad($ops) . pad($hps) . pad($mps) . pad($tfps) . pad($total_latency) . pad($tmbps) . "\n" .
 			"-------------------------------------------------------------------------------\n\n" .
 
@@ -238,50 +243,91 @@ function output_data($elapsed_time) {
 			"-------------------------------------------------------------------------------\n");
 
 		foreach ($totals as $host=>$total) {
-			if (isset($total['settings'])) {
-				if (($total['sample']['set_latency'] != 0) && ($total['sample']['set_count'] != 0)) {
-					$c_set_latency = number_format(($total['sample']['set_latency'] / $total['sample']['set_count']), 6, '.', ',');
-				} else {
-					$c_set_latency = number_format(0, 6, '.', ',');
-				}
-				if (($total['sample']['get_latency'] != 0) && ($total['sample']['get_count'] != 0)) {
-					$c_get_latency = number_format(($total['sample']['get_latency'] / $total['sample']['get_count']), 6, '.', ',');
-				} else {
-					$c_get_latency = number_format(0, 6, '.', ',');
-				}
-
-				$c_sps = number_format($total['sample']['set_count'] / $elapsed_time, 2, '.', ',');
-				$c_gps = number_format($total['sample']['get_count'] / $elapsed_time, 2, '.', ',');
-				$c_smbps = number_format((($total['sample']['set_transferred'] / 1024 / 1024) / $elapsed_time), 2, '.', ',');
-				$c_gmbps = number_format((($total['sample']['get_transferred'] / 1024 / 1024) / $elapsed_time), 2, '.', ',');
-				$c_ratio = $total['settings']['set_ratio'] . ':' . $total['settings']['get_ratio'];
-				$c_pattern = $total['settings']['set_pattern'] . ':' . $total['settings']['get_pattern'];
-				if ($total['settings']['checksum'] == TRUE) {
-					$c_checksum = "TRUE";
-				} else {
-					$c_checksum = "FALSE";
-				}
+			if ($total['disconnected'] != TRUE) {
+				if (isset($total['settings'])) {
+					if (($total['sample']['set_latency'] != 0) && ($total['sample']['set_count'] != 0)) {
+						$c_set_latency = number_format(($total['sample']['set_latency'] / $total['sample']['set_count']), 6, '.', ',');
+					} else {
+						$c_set_latency = number_format(0, 6, '.', ',');
+					}
+					if (($total['sample']['get_latency'] != 0) && ($total['sample']['get_count'] != 0)) {
+						$c_get_latency = number_format(($total['sample']['get_latency'] / $total['sample']['get_count']), 6, '.', ',');
+					} else {
+						$c_get_latency = number_format(0, 6, '.', ',');
+					}
 	
-				printf(pad($host, LARGE_FIELD_SIZE, RIGHT) . pad($c_sps) . pad($c_set_latency) . pad($c_smbps, MID_FIELD_SIZE) . " " . pad($c_gps) . pad($c_get_latency) . pad($c_gmbps, MID_FIELD_SIZE) . "\n");
-						
+					$c_sps = number_format($total['sample']['set_count'] / $elapsed_time, 2, '.', ',');
+					$c_gps = number_format($total['sample']['get_count'] / $elapsed_time, 2, '.', ',');
+					$c_smbps = number_format((($total['sample']['set_transferred'] / 1024 / 1024) / $elapsed_time), 2, '.', ',');
+					$c_gmbps = number_format((($total['sample']['get_transferred'] / 1024 / 1024) / $elapsed_time), 2, '.', ',');
+					$c_ratio = $total['settings']['set_ratio'] . ':' . $total['settings']['get_ratio'];
+					$c_pattern = $total['settings']['set_pattern'] . ':' . $total['settings']['get_pattern'];
+					if ($total['settings']['checksum'] == TRUE) {
+						$c_checksum = "TRUE";
+					} else {
+						$c_checksum = "FALSE";
+					}
+		
+					printf(pad($host, LARGE_FIELD_SIZE, RIGHT) . pad($c_sps) . pad($c_set_latency) . pad($c_smbps, MID_FIELD_SIZE) . " " . pad($c_gps) . pad($c_get_latency) . pad($c_gmbps, MID_FIELD_SIZE) . "\n");
+							
+				}
 			}
 		}
 	}
 
 	if ($settings['filename'] != NULL) {
-		fwrite($foutput, $last_write . ':' .
-			$sample['set_count'] . ':' .
-			$set_latency . ':' .
-			$sample['get_count'] . ':' .
-			$get_latency . ':' .
-			$sample['hit_count'] . ':' .
-			$sample['miss_count'] . ':' .
-			$sample['set_fail_count'] . ':' .
-			$sample['md5_fail_count'] . ':' .
-			$sample['operations'] . ':' .
-			$sample['set_transferred'] . ':' .
-			$sample['get_transferred'] . ':' .
-			$clients . "\n");
+		write_sample($sample);
+	}
+}
+
+function write_sample($data) {
+	global $foutput;
+	global $settings;
+
+	switch ($settings['output_format']) {
+		case 'json':
+			$json = new Services_JSON();
+			$foutput = fopen($settings['filename'], "a+");
+			fwrite($foutput, ','.$json->encodeUnsafe($data));
+			fclose($foutput);
+		break;
+		case 'csv':
+			if (!$foutput) {
+				$output = '#';
+				foreach ($data as $key=>$value) {
+					$output .= $key.',';
+				}
+				$output = substr($output, 0, (strlen($output) - 1));
+	
+				$foutput = fopen($settings['filename'], 'w');
+				fwrite($foutput, $output."\n");
+			} else {
+				$output = '';
+				foreach ($data as $key=>$value) {
+					$output .= "$value,";
+				}
+				$output = substr($output, 0, (strlen($output) - 1));
+				fwrite($foutput, $output."\n");
+			}
+		break;
+	}
+		
+}
+		
+function write_total($data) {
+	global $foutput;
+	global $settings;
+
+	switch ($settings['output_format']) {
+		case 'json':
+			$json = new Services_JSON();
+			$foutput = fopen($settings['filename'], 'a+');
+			fwrite($foutput, ','.$json->encodeUnsafe($data));
+			fclose($foutput);
+		break;
+		case 'csv':
+			fwrite($foutput, summary());
+		break;
 	}
 }
 
@@ -302,9 +348,10 @@ function onStart() {
 
 	/* if filename != NULL then we need to output results to file */
 	if ($settings['filename'] != NULL) {
-		if (!$foutput) {
+		if ($settings['output_format'] == 'json') {
 			$foutput = fopen($settings['filename'], 'w');
-			fwrite($foutput, "#timestamp:sets:set_latency:gets:get_latency:hits:misses:set_fails:md5_fails:operations:set_transferred:get_transferred:clients\nSTART\n");
+			fwrite($foutput, "{\"stats\":[{\"collector\":\"la-cn1:9091\"}");
+			fclose($foutput);
 		}
 	}
 }
@@ -331,18 +378,32 @@ function onShutdown() {
 		}
 
 		if ($settings['filename'] != NULL) {
-			fwrite($foutput, "END\n" .
-				summary());
-			fclose($foutput);
+			switch ($settings['output_format']) {
+				case 'json':
+					write_total($totals);
+					$foutput = fopen($settings['filename'], 'a+');
+					fwrite($foutput, ']}');
+				break;
+				case 'csv':
+					fwrite($foutput, "END\n");
+					write_total($totals);
+					fclose($foutput);
+				break;
+			}
 		}
 	}
 	exit(0);
 }
 	
 function new_host ($host) {
+/* new_host()
+	add new host to totals
+	@param $host string
+*/
 	global $totals;
 
 	$totals[$host] = array();
+	$totals[$host]['disconnected'] = FALSE;
 	$totals[$host]['raw'] = array();
 	$totals[$host]['raw']['key_count'] = 0;
 	$totals[$host]['raw']['operations'] = 0; 
@@ -388,24 +449,27 @@ function OnClose($client_id = 0) {
 	global $clients;
 	global $totals;
 	global $hosts;
+	global $last_write;
 
 	$clients--;
 
-	$host = $hosts[$client_id];
-	unset($hosts[$client_id]);
+	if (isset($hosts[$client_id])) {
+		$host = $hosts[$client_id];
+		unset($hosts[$client_id]);
 
-	$remove = TRUE;
-	foreach ($hosts as $key=>$value) {
-		if ($host == $value) {
-			$remove = FALSE;
+		$remove = TRUE;
+		foreach ($hosts as $key=>$value) {
+			if ($host == $value) {
+				$remove = FALSE;
+			}
+		}
+
+		if ($remove == TRUE) {
+			$totals[$host]['disconnected'] = TRUE;
 		}
 	}
-	if ($remove == TRUE) {
-		unset($totals[$host]);
-	}
-
 	if ($clients == 0) {
-		exit(0);
+		onShutdown();
 	}
 }
 
@@ -506,8 +570,12 @@ function reset_samples() {
 
 	$connections = 0;
 	foreach ($totals as $client_id=>$total) {
-		foreach ($total['sample'] as $key=>$value) {
-			$totals[$client_id]['sample'][$key] = 0;
+		if ($total['disconnected'] != TRUE) {
+			if (isset($total['sample'])) {
+				foreach ($total['sample'] as $key=>$value) {
+					$totals[$client_id]['sample'][$key] = 0;
+				}
+			}
 		}
 	}
 }
@@ -519,26 +587,22 @@ $clients = 0;
 $totals = array();
 $settings = array();
 $hosts = array();
+$foutput = NULL;
+$xml = NULL;
 
-$options = getopt('o:vi:c:');
+$options = getopt('o:vi:c:F:');
 
 parse_collector($options, 'c');
 parse_verbose($options, 'v');
 parse_poll($options, 'i');
 parse_output($options, 'o');
+parse_output_format($options, 'F');
 
-
-/*
-$server  = &Net_Server::create('sequential', $settings['collector']['server'], $settings['collector']['port']);
-$server->setDebugMode(FALSE, "text");
-$handler = &new Net_Server_Handler_Talkback;
-$server->setCallbackObject($handler);
-*/
-#pcntl_signal(SIGINT, "onShutdown", FALSE);
-/*
-$server->start();
-*/
+if ($settings['output_format'] == 'json' && $settings['filename'] != NULL) { 
+	include('Services/JSON.php');
+}
 
 /* Start collector on requested ip port */
+pcntl_signal(SIGINT, "onShutdown", FALSE);
 start_server($settings['collector']['server'], $settings['collector']['port']);
 ?>

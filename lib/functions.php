@@ -1,6 +1,6 @@
 <?php
 /*	Project:        Brutis
-	Version:        0.91
+	Version:        0.92
 	Author:         Zach Younker
 	Copyright:
 
@@ -53,6 +53,15 @@ function check_libs() {
 			$settings['memcachelib_version'] = 3;
 		}
 	}
+	if (isset($settings['output_format'])) {
+		if ($settings['output_format'] == 'json' && $settings['filename'] != NULL) {
+			@include('Services/JSON.php');
+			if (class_exists('Services_JSON') == 0) {
+				printf("Error, Missing required libary 'Services_JSON', exiting\n");
+				exit(1);
+			}
+		}
+	}
 }
 
 
@@ -70,35 +79,29 @@ function check_arg($arglist, $arg) {
 	}
 }
 
-function valid_host($host) {
-/*	valid_host()
-	Validate that hostname uses correct chars, and has DNS name associated 
-	@params string $host hostname to validate	 
-	@return bool
+function host_to_addr($host) {
+/*      host_to_addr()
+        Convert host to IP Address
+        @params string $host hostname/ip to validate        
+        @return bool
 */
-	if (preg_match('/^[a-zA-Z0-9_-]{1,255}$/', $host)) {
-		if ($host == 'localhost') {
-			return TRUE;
-		}
-		$ip = gethostbyname($host);
-		if ($ip == $host) {
-			return FALSE;
-		} else {
-			return TRUE;
-		}
-	} else {
-		if(preg_match('/(\d+).(\d+).(\d+).(\d+)/', $host)) {
-			$ip = gethostbyaddr($host); 
-			if ($ip == $host) {
-				return FALSE;
-			} else {
-				return TRUE;
-			}
-		} else {
-			return FALSE;
-		}
-	}
+	if(preg_match('/(\d+).(\d+).(\d+).(\d+)/', $host)) {
+		return $host;
+	} elseif (preg_match('/^[.a-zA-Z0-9_-]{1,255}$/', $host)) {
+                $ip = gethostbyname($host);
+                if ($ip == $host) {
+                        echo ("Error resolving dns name: $host\n");
+                        exit(1);
+                } else {
+                        return $ip;
+                }
+        } else {
+		echo ("Error parsing $host\n");
+		exit(1);
+        }
 }
+
+
 
 function parse_mc_servers($servers, $arg) {
 /* 	parse_mc_servers()
@@ -114,65 +117,63 @@ function parse_mc_servers($servers, $arg) {
 		if (ereg(",", $servers[$arg])) {
 			$split_options = split(',', $servers[$arg]);
 			foreach ($split_options as $current) {
-				$settings['memcache'][$count]['server'] = 'localhost';
+				$settings['memcache'][$count]['server'] = host_to_addr('localhost');
 				$settings['memcache'][$count]['tcp_port'] = '11211';
 				$settings['memcache'][$count]['udp_port'] = '0';
 				if (ereg(":", $current)) {
 					$curr_explode = explode(':', $current);
-					$settings['memcache'][$count]['server'] = strtolower(trim($curr_explode[0]));
+					$settings['memcache'][$count]['server'] = host_to_addr(strtolower(trim($curr_explode[0])));
 					if (isset($curr_explode[1])) {
 						$settings['memcache'][$count]['tcp_port'] = (int) $curr_explode[1];
 					}
 					if (isset($curr_explode[2])) {
 						$settings['memcache'][$count]['udp_port'] = (int) $curr_explode[2];
 					}
-					if (!valid_host($settings['memcache'][$count]['server'])) {
-						printf("Hostname: " . $settings['memcache'][$count]['server'] . " is not a valid hostname!\n");
-						exit(1);
-					}
 				} else {
-					$settings['memcache'][$count]['server'] = strtolower(trim($current));
+					$settings['memcache'][$count]['server'] = host_to_addr(strtolower(trim($current)));
 					$settings['memcache'][$count]['tcp_port'] = 11211;
 					$settings['memcache'][$count]['udp_port'] = 0;
-					if (!valid_host($settings['memcache'][$count]['server'])) {
-						printf("Hostname: " . $settings['memcache'][$count]['server'] . " is not a valid hostname!\n");
-						exit(1);
-					}
 				}
 				$count++;
 			}
 		} else {
-			$settings['memcache'][0]['server'] = 'localhost';
+			$settings['memcache'][0]['server'] = host_to_addr('localhost');
 			$settings['memcache'][0]['tcp_port'] = '11211';
 			$settings['memcache'][0]['udp_port'] = '0';
 			if (ereg(":", $servers[$arg])) {
 				$curr_explode = explode(':', $servers[$arg]);
-				$settings['memcache'][$count]['server'] = strtolower(trim($curr_explode[0]));
+				$settings['memcache'][$count]['server'] = host_to_addr(strtolower(trim($curr_explode[0])));
 				if (isset($curr_explode[1])) {
 					$settings['memcache'][$count]['tcp_port'] = (int) $curr_explode[1];
 				}
 				if (isset($curr_explode[2])) {
 					$settings['memcache'][$count]['udp_port'] = (int) $curr_explode[2];
 				}
-				if (!valid_host($settings['memcache'][$count]['server'])) {
-					printf("Hostname: " . $settings['memcache'][$count]['server'] . " is not a valid hostname!\n");
-					exit(1);
-				}
 			} else {
-				$settings['memcache'][$count]['server'] = strtolower(trim($servers[$arg]));
+				$settings['memcache'][$count]['server'] = host_to_addr(strtolower(trim($servers[$arg])));
 				if (isset($curr_explode[1])) {
 					$settings['memcache'][$count]['tcp_port'] = 11211;
 				}
 				if (isset($curr_explode[1])) {
 					$settings['memcache'][$count]['udp_port'] = 0;
 				}
-				if (!valid_host($settings['memcache'][$count]['server'])) {
-					printf("Hostname: " . $settings['memcache'][$count]['server'] . " is not a valid hostname!\n");
-					exit(1);
-				}
 			}
 		}
 	}
+}
+
+function parse_disable_collector($collector, $arg) {
+/* 	parse_collector_start()
+	@params mixed $collector runtime argument array
+	@params string $arg variable name that contains collector_start setting
+*/
+	global $settings;
+
+	check_arg($collector, $arg);
+        $settings['disable_collector'] = FALSE;
+	if (isset($collector[$arg])) {
+            $settings['disable_collector'] = TRUE;
+        }
 }
 
 function parse_collector($collector, $arg) {
@@ -184,25 +185,13 @@ function parse_collector($collector, $arg) {
 
 	check_arg($collector, $arg);
 
-	$host_info = posix_uname();
-	$nodename = $host_info['nodename'];
-	if (eregi('.', $nodename)) {
-		$e_nodename = explode(".", $nodename);
-		$hostname = $e_nodename[0];
-	} else {
-		$hostname = $nodename;
-	}
-
-
-	$settings['collector']['server'] = $hostname;
+	$settings['collector']['server'] = host_to_addr('localhost');
 	$settings['collector']['port'] = '9091';
+        $settings['use_collector'] = FALSE;
 	if (isset($collector[$arg])) {
+                $settings['use_collector'] = TRUE;
 		$e_collector = explode(':', $collector[$arg]);
-		$settings['collector']['server'] = strtolower(trim($e_collector[0]));
-		if (!valid_host($settings['collector']['server'])) {
-			printf("Hostname: " . $settings['collector']['server'] . " is not a valid hostname!\n");
-			exit(1);
-		}
+		$settings['collector']['server'] = host_to_addr(strtolower(trim($e_collector[0])));
 		if (isset($e_collector[1])) {
 			$settings['collector']['port'] = (int) $e_collector[1];
 		} else {
@@ -406,6 +395,35 @@ function parse_forks($options, $arg) {
 			print("Error setting forks to: " . $settings['forks'] . ", must be between 1-512!\n");
 			exit(1);
 		}
+	}
+}
+
+function parse_output_format($options, $arg) {
+/* 	parse_output()
+	@params mixed $options runtime argument array
+	@params string $arg variable name that contains output filename setting
+*/
+	global $settings;
+
+	check_arg($options, $arg);
+
+	$settings['output_format'] = 'csv'; 
+	if (isset($options[$arg])) {
+		switch ($options[$arg]) {
+			case 'JSON':
+			case 'json':
+				$settings['output_format'] = 'xml';
+			break;
+			case 'CSV':
+			case 'csv':
+				$settings['output_format'] = 'csv';
+			break;
+			default:
+				printf($options[$arg] . " is not a valid output_format!\n");
+				exit(1);
+			break;
+		}
+		$settings['output_format'] = trim($options[$arg]);
 	}
 }
 
