@@ -1,7 +1,7 @@
 #!/usr/bin/php
 <?php
 /*	Project:        Brutis
-	Version:        0.92.
+	Version:        0.93
 	Author:         Zach Younker
 	Copyright:
 
@@ -481,6 +481,7 @@ function mc_set($id) {
 	global $settings;
 	global $memcache;
 
+        $result = TRUE;
 	$key = $settings['prefix'] . $id;
 	$data = gen_data($settings['object_size']);
 
@@ -503,11 +504,11 @@ function mc_set($id) {
 			$cresults['set_count']++;
 		} else {
 			$cresults['set_fail_count']++;
-			return FALSE;
+                        $result = FALSE;
 		}
 		$i++;
 	}
-	return TRUE;
+	return $result;
 }
 
 function mc_get($key_ids) {

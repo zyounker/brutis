@@ -124,6 +124,11 @@ Exit Codes:
 
 
 Release Notes:
+	Version - 0.93
+                * Fixed bug with not reporting when verbose not specified
+                * Added dataset size to summary
+                * Fixed sequential set/get bug causing misses
+                * Fixed multiplier bug in sets exiting after 1st failure
 	Version - 0.92
 		* Fixed bug with taskmanager library hitting maxruntime and killing collector
 		* Fixed bug with collector starting when -v & -o not specified in client

@@ -2,7 +2,7 @@
 <?php
 /*
 	Project:	Brutis
-	Version:	0.92
+	Version:	0.93
 	Author:		Zach Younker
 	Copyright:
 
@@ -127,7 +127,9 @@ class client extends Task{
 			}
 		}
 		$options[] = "-x" . trim($server_list);
-                if ($this->args['filename'] != NULL || $this->args['verbose'] == TRUE) {
+                if ($this->args['filename'] != NULL 
+                    || $this->args['verbose'] == TRUE
+                    || $this->args['use_collector'] == true) {
 			$options[]='-c' . $this->args['collector']['server'] . ":" . $this->args['collector']['port'];
                 }
 

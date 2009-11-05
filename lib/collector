@@ -1,7 +1,7 @@
 #!/usr/bin/php
 <?php
 /*	Project:        Brutis
-	Version:        0.92
+	Version:        0.93
 	Author:         Zach Younker
 	Copyright:
 
@@ -145,13 +145,17 @@ function summary() {
 	$sample['operations'] = 0;
 	$sample['set_latency'] = 0;
 	$sample['get_latency'] = 0;
+	$sample['dataset_size'] = 0;
 
 	foreach ($totals as $host=>$total) {
 		foreach ($total['raw'] as $key=>$value) {
 			$sample[$key] = $sample[$key] + $value;
 		}
+                $sample['dataset_size'] = $sample['dataset_size'] + ($sample['key_count'] * $totals[$host]['settings']['object_size']);
 	}
+
 	$summary =  ("\n\nTotal Operations:\t" . pad($sample['operations']) . "\n" .
+			"Total Dataset Size:\t" . pad($sample['dataset_size']) . "\n" .
 			"Total Sets:\t\t" . pad($sample['set_count']) . "\n" .
 			"Total Gets:\t\t" . pad($sample['get_count']) . "\n" .
 			"Total Hits:\t\t" . pad($sample['hit_count']) . "\n" .
@@ -502,8 +506,8 @@ function onReceiveData ($client_id = 0, $data = '') {
 	$host = $hosts[$client_id];
 
 	if (isset($data['key_count'])) {
-		$totals[$host]['sample']['key_count'] = $totals[$host]['sample']['key_count'] + $data['key_count'];		
-		$totals[$host]['raw']['key_count'] = $totals[$host]['raw']['key_count'] + $data['key_count'];		
+		$totals[$host]['sample']['key_count'] = $data['key_count'];		
+		$totals[$host]['raw']['key_count'] =  $data['key_count'];		
 	}
 	if (isset($data['operations'])) {
 		$totals[$host]['sample']['operations'] = $totals[$host]['sample']['operations'] + $data['operations'];		

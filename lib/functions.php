@@ -1,6 +1,6 @@
 <?php
 /*	Project:        Brutis
-	Version:        0.92
+	Version:        0.93
 	Author:         Zach Younker
 	Copyright:
 
